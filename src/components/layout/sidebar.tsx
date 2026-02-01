@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Shield } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useUserRole } from '@/contexts/user-context'
+import { useUserRole, useIsPlatformAdmin } from '@/contexts/user-context'
 import { getNavigationForRole, type NavGroup } from '@/config/navigation'
 import { useTranslation } from '@/lib/i18n'
 
@@ -34,6 +34,7 @@ function setStoredCollapseState(state: Record<string, boolean>) {
 export function Sidebar() {
   const pathname = usePathname()
   const role = useUserRole()
+  const isPlatformAdmin = useIsPlatformAdmin()
   const navigation = getNavigationForRole(role)
   const { t } = useTranslation()
 
@@ -152,6 +153,19 @@ export function Sidebar() {
                 )}
               </li>
             ))}
+
+            {/* Platform Admin Link */}
+            {isPlatformAdmin && (
+              <li className="mt-auto pt-4 border-t border-gray-200">
+                <Link
+                  href="/admin"
+                  className="group flex gap-x-3 rounded-md p-2 text-sm font-medium leading-6 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                >
+                  <Shield className="h-5 w-5 shrink-0 text-emerald-600" />
+                  Admin Panel
+                </Link>
+              </li>
+            )}
           </ul>
         </nav>
       </div>

@@ -104,14 +104,14 @@ export function CategoryForm({ category, categories }: CategoryFormProps) {
           <div className="space-y-2">
             <Label htmlFor="parent_id">{t('categories.parentCategory')} ({t('common.optional')})</Label>
             <Select
-              value={watch('parent_id') || ''}
-              onValueChange={(value) => setValue('parent_id', value || null)}
+              value={watch('parent_id') || 'none'}
+              onValueChange={(value) => setValue('parent_id', value === 'none' ? null : value)}
             >
               <SelectTrigger>
                 <SelectValue placeholder={t('categories.noParent')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">{t('categories.noParent')}</SelectItem>
+                <SelectItem value="none">{t('categories.noParent')}</SelectItem>
                 {parentOptions.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
                     {cat.name}

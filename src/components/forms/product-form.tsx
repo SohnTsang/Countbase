@@ -137,14 +137,14 @@ export function ProductForm({ product, categories }: ProductFormProps) {
             <div className="space-y-2">
               <Label htmlFor="category_id">{t('products.category')}</Label>
               <Select
-                value={watch('category_id') || ''}
-                onValueChange={(value) => setValue('category_id', value || null)}
+                value={watch('category_id') || 'none'}
+                onValueChange={(value) => setValue('category_id', value === 'none' ? null : value)}
               >
                 <SelectTrigger>
                   <SelectValue placeholder={t('common.selectOption')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">{t('common.noCategory')}</SelectItem>
+                  <SelectItem value="none">{t('common.noCategory')}</SelectItem>
                   {categories.map((cat) => (
                     <SelectItem key={cat.id} value={cat.id}>
                       {cat.name}

@@ -14,6 +14,7 @@ interface DashboardLayoutClientProps {
     name: string
     email: string
     role: UserRole
+    is_platform_admin: boolean
   }
 }
 
@@ -27,6 +28,7 @@ export function DashboardLayoutClient({ children, user }: DashboardLayoutClientP
         email: user.email,
         name: user.name,
         role: user.role,
+        isPlatformAdmin: user.is_platform_admin || false,
       }}
     >
       <MobileNav open={sidebarOpen} onClose={() => setSidebarOpen(false)} />

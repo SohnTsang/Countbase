@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { DashboardLayoutClient } from './layout-client'
+import { AdminLayoutClient } from './layout-client'
 
-export default async function DashboardLayout({
+export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode
@@ -25,9 +25,14 @@ export default async function DashboardLayout({
     redirect('/login')
   }
 
+  // Check if user is platform admin
+  if (!userData.is_platform_admin) {
+    redirect('/')
+  }
+
   return (
-    <DashboardLayoutClient user={userData}>
+    <AdminLayoutClient user={userData}>
       {children}
-    </DashboardLayoutClient>
+    </AdminLayoutClient>
   )
 }

@@ -8,6 +8,7 @@ interface UserContextValue {
   email: string
   name: string
   role: UserRole
+  isPlatformAdmin: boolean
 }
 
 const UserContext = createContext<UserContextValue | null>(null)
@@ -36,4 +37,9 @@ export function useUser() {
 export function useUserRole() {
   const user = useUser()
   return user.role
+}
+
+export function useIsPlatformAdmin() {
+  const user = useUser()
+  return user.isPlatformAdmin
 }

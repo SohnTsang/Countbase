@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { QueryProvider } from '@/components/providers/query-provider'
+import { ErrorProvider } from '@/components/providers/error-provider'
 import { Toaster } from 'sonner'
 import { TranslationProvider } from '@/lib/i18n'
 import { getLocale, getServerMessages } from '@/lib/i18n/server'
@@ -26,7 +27,9 @@ export default async function RootLayout({
       <body className={inter.className}>
         <QueryProvider>
           <TranslationProvider initialLocale={locale} messages={messages}>
-            {children}
+            <ErrorProvider>
+              {children}
+            </ErrorProvider>
             <Toaster position="top-right" richColors />
           </TranslationProvider>
         </QueryProvider>

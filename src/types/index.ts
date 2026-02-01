@@ -25,6 +25,7 @@ export interface User {
   name: string
   role: UserRole
   active: boolean
+  is_platform_admin: boolean
   created_at: string
 }
 
@@ -368,4 +369,64 @@ export interface AuditLog {
   created_at: string
   // View fields
   description?: string
+}
+
+// Error Logging Types
+export type ErrorSeverity = 'info' | 'warning' | 'error' | 'fatal'
+export type ErrorStatus = 'open' | 'investigating' | 'resolved' | 'ignored'
+export type ErrorType = 'client' | 'server' | 'api' | 'database' | 'auth' | 'validation' | 'network' | 'unknown'
+
+export interface ErrorLog {
+  id: string
+  tenant_id: string | null
+  error_hash: string
+  fingerprint: string | null
+  error_type: ErrorType
+  severity: ErrorSeverity
+  message: string
+  stack_trace: string | null
+  url: string | null
+  method: string | null
+  status_code: number | null
+  user_agent: string | null
+  ip_address: string | null
+  user_id: string | null
+  metadata: Record<string, unknown>
+  tags: string[]
+  occurrence_count: number
+  first_seen_at: string
+  last_seen_at: string
+  status: ErrorStatus
+  resolved_by: string | null
+  resolved_at: string | null
+  resolution_note: string | null
+  created_at: string
+  updated_at: string
+  // Joined fields
+  user?: User
+  tenant?: Tenant
+  resolver?: User
+}
+
+export interface ErrorLogFilters {
+  status?: ErrorStatus | 'all'
+  severity?: ErrorSeverity | 'all'
+  error_type?: ErrorType | 'all'
+  search?: string
+  dateFrom?: string
+  dateTo?: string
+}
+
+export interface ErrorStats {
+  total: number
+  open: number
+  investigating: number
+  resolved: number
+  ignored: number
+  bySeverity: Record<ErrorSeverity, number>
+  byType: Record<ErrorType, number>
+  trend: {
+    date: string
+    count: number
+  }[]
 }

@@ -134,10 +134,10 @@ export function ShipmentForm({ customers, locations, products, stockBalances }: 
             <div className="space-y-2">
               <Label>{t('shipments.customer')}</Label>
               <Select
-                value={watchedCustomerId || ''}
+                value={watchedCustomerId || 'none'}
                 onValueChange={(value) => {
-                  setValue('customer_id', value || null)
-                  if (value) {
+                  setValue('customer_id', value === 'none' ? null : value)
+                  if (value && value !== 'none') {
                     setValue('customer_name', '')
                   }
                 }}
@@ -146,7 +146,7 @@ export function ShipmentForm({ customers, locations, products, stockBalances }: 
                   <SelectValue placeholder={t('shipments.selectCustomer')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">-- {t('common.noResults')} --</SelectItem>
+                  <SelectItem value="none">-- {t('common.noResults')} --</SelectItem>
                   {customers.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.code ? `${c.code} - ${c.name}` : c.name}

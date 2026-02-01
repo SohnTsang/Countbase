@@ -155,14 +155,14 @@ export function ReturnForm({ customers, suppliers, locations, products }: Return
             <div className="space-y-2">
               <Label>{watchedReturnType === 'customer' ? t('customers.customer') : t('suppliers.supplier')}</Label>
               <Select
-                value={watchedPartnerId || ''}
-                onValueChange={(value) => setValue('partner_id', value || null)}
+                value={watchedPartnerId || 'none'}
+                onValueChange={(value) => setValue('partner_id', value === 'none' ? null : value)}
               >
                 <SelectTrigger>
                   <SelectValue placeholder={t('returns.selectOptional')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">{t('returns.noneOption')}</SelectItem>
+                  <SelectItem value="none">{t('returns.noneOption')}</SelectItem>
                   {partners.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.code ? `${p.code} - ${p.name}` : p.name}
