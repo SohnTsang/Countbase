@@ -6,9 +6,11 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LowStockExport } from './low-stock-export'
+import { getTranslator } from '@/lib/i18n/server'
 
 export default async function LowStockReportPage() {
   const supabase = await createClient()
+  const t = await getTranslator()
 
   // Get products with their total stock across all locations
   const { data: products } = await supabase
@@ -68,8 +70,8 @@ export default async function LowStockReportPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Low Stock Report</h1>
-            <p className="text-gray-600">Products below their reorder point</p>
+            <h1 className="text-2xl font-bold text-gray-900">{t('reports.lowStock')}</h1>
+            <p className="text-gray-600">{t('reports.lowStockDesc')}</p>
           </div>
         </div>
         <LowStockExport data={exportData} />
@@ -77,20 +79,20 @@ export default async function LowStockReportPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{lowStock?.length || 0} Product(s) Need Reordering</CardTitle>
+          <CardTitle>{`${lowStock?.length || 0} ${t('reports.productsNeedReordering')}`}</CardTitle>
         </CardHeader>
         <CardContent>
           {lowStock && lowStock.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Unit</TableHead>
-                  <TableHead className="text-right">On Hand</TableHead>
-                  <TableHead className="text-right">Reorder Point</TableHead>
-                  <TableHead className="text-right">Reorder Qty</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{t('products.sku')}</TableHead>
+                  <TableHead>{t('products.product')}</TableHead>
+                  <TableHead>{t('reports.unit')}</TableHead>
+                  <TableHead className="text-right">{t('reports.onHand')}</TableHead>
+                  <TableHead className="text-right">{t('products.reorderPoint')}</TableHead>
+                  <TableHead className="text-right">{t('products.reorderQty')}</TableHead>
+                  <TableHead>{t('common.status')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -105,8 +107,8 @@ export default async function LowStockReportPage() {
                     <TableCell>
                       <Badge variant={item.total_on_hand === 0 ? 'destructive' : 'default'}>
                         {item.total_on_hand === 0
-                          ? 'Out of Stock'
-                          : `Short ${item.reorder_point - item.total_on_hand}`}
+                          ? t('reports.outOfStock')
+                          : `${t('reports.short')} ${item.reorder_point - item.total_on_hand}`}
                       </Badge>
                     </TableCell>
                   </TableRow>
@@ -115,7 +117,7 @@ export default async function LowStockReportPage() {
             </Table>
           ) : (
             <p className="text-center text-gray-500 py-8">
-              All products are above their reorder points
+              {t('reports.allProductsAboveReorderPoint')}
             </p>
           )}
         </CardContent>

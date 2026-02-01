@@ -7,9 +7,11 @@ import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/utils'
 import { ExpiringExport } from './expiring-export'
+import { getTranslator } from '@/lib/i18n/server'
 
 export default async function ExpiringReportPage() {
   const supabase = await createClient()
+  const t = await getTranslator()
 
   // Get inventory balances with expiry dates in next 30 days
   const thirtyDaysFromNow = new Date()
@@ -65,8 +67,8 @@ export default async function ExpiringReportPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Expiring Soon</h1>
-            <p className="text-gray-600">Products expiring in the next 30 days</p>
+            <h1 className="text-2xl font-bold text-gray-900">{t('reports.expiring')}</h1>
+            <p className="text-gray-600">{t('reports.expiringDesc')}</p>
           </div>
         </div>
         <ExpiringExport data={exportData} />
@@ -74,20 +76,20 @@ export default async function ExpiringReportPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{expiringWithDays?.length || 0} Item(s) Expiring Soon</CardTitle>
+          <CardTitle>{`${expiringWithDays?.length || 0} ${t('reports.itemsExpiringSoon')}`}</CardTitle>
         </CardHeader>
         <CardContent>
           {expiringWithDays && expiringWithDays.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Lot #</TableHead>
-                  <TableHead>Expiry</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead>Days Left</TableHead>
+                  <TableHead>{t('products.sku')}</TableHead>
+                  <TableHead>{t('products.product')}</TableHead>
+                  <TableHead>{t('stock.location')}</TableHead>
+                  <TableHead>{t('stock.lotNumber')}</TableHead>
+                  <TableHead>{t('table.expiry')}</TableHead>
+                  <TableHead className="text-right">{t('common.quantity')}</TableHead>
+                  <TableHead>{t('reports.daysLeft')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -104,7 +106,7 @@ export default async function ExpiringReportPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant={item.days_until_expiry <= 7 ? 'destructive' : 'default'}>
-                        {item.days_until_expiry <= 0 ? 'Expired' : `${item.days_until_expiry}d`}
+                        {item.days_until_expiry <= 0 ? t('reports.expired') : `${item.days_until_expiry}d`}
                       </Badge>
                     </TableCell>
                   </TableRow>
@@ -113,7 +115,7 @@ export default async function ExpiringReportPage() {
             </Table>
           ) : (
             <p className="text-center text-gray-500 py-8">
-              No products expiring in the next 30 days
+              {t('reports.noProductsExpiring')}
             </p>
           )}
         </CardContent>

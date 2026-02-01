@@ -6,9 +6,11 @@ import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
 import { ValuationExport } from './valuation-export'
+import { getTranslator } from '@/lib/i18n/server'
 
 export default async function ValuationReportPage() {
   const supabase = await createClient()
+  const t = await getTranslator()
 
   const { data: balances } = await supabase
     .from('inventory_balances')
@@ -49,8 +51,8 @@ export default async function ValuationReportPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Inventory Valuation</h1>
-            <p className="text-gray-600">Current value by product and location</p>
+            <h1 className="text-2xl font-bold text-gray-900">{t('reports.valuation')}</h1>
+            <p className="text-gray-600">{t('reports.valuationDesc')}</p>
           </div>
         </div>
         <ValuationExport data={exportData} />
@@ -59,7 +61,7 @@ export default async function ValuationReportPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-gray-500">Total Value</CardTitle>
+            <CardTitle className="text-sm font-medium text-gray-500">{t('reports.totalValue')}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{formatCurrency(totalValue)}</p>
@@ -67,7 +69,7 @@ export default async function ValuationReportPage() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-gray-500">Total Items</CardTitle>
+            <CardTitle className="text-sm font-medium text-gray-500">{t('reports.totalItems')}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{totalItems.toLocaleString()}</p>
@@ -77,19 +79,19 @@ export default async function ValuationReportPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Inventory by Product & Location</CardTitle>
+          <CardTitle>{t('reports.inventoryByProductLocation')}</CardTitle>
         </CardHeader>
         <CardContent>
           {balances && balances.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Avg Cost</TableHead>
-                  <TableHead className="text-right">Total Value</TableHead>
+                  <TableHead>{t('products.sku')}</TableHead>
+                  <TableHead>{t('products.product')}</TableHead>
+                  <TableHead>{t('stock.location')}</TableHead>
+                  <TableHead className="text-right">{t('common.quantity')}</TableHead>
+                  <TableHead className="text-right">{t('reports.avgCost')}</TableHead>
+                  <TableHead className="text-right">{t('reports.totalValue')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -111,7 +113,7 @@ export default async function ValuationReportPage() {
               </TableBody>
             </Table>
           ) : (
-            <p className="text-center text-gray-500 py-8">No inventory found</p>
+            <p className="text-center text-gray-500 py-8">{t('reports.noInventory')}</p>
           )}
         </CardContent>
       </Card>

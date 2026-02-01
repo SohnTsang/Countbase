@@ -7,21 +7,23 @@ import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { formatDate, formatCurrency } from '@/lib/utils'
 import { MovementsExport } from './movements-export'
-
-const MOVEMENT_LABELS = {
-  receive: 'Receive',
-  ship: 'Ship',
-  transfer_out: 'Transfer Out',
-  transfer_in: 'Transfer In',
-  adjustment: 'Adjustment',
-  count_variance: 'Count Variance',
-  return_in: 'Return In',
-  return_out: 'Return Out',
-  void: 'Void',
-} as const
+import { getTranslator } from '@/lib/i18n/server'
 
 export default async function MovementsReportPage() {
   const supabase = await createClient()
+  const t = await getTranslator()
+
+  const MOVEMENT_LABELS: Record<string, string> = {
+    receive: t('movementTypes.receive'),
+    ship: t('movementTypes.ship'),
+    transfer_out: t('movementTypes.transfer_out'),
+    transfer_in: t('movementTypes.transfer_in'),
+    adjustment: t('movementTypes.adjustment'),
+    count_variance: t('movementTypes.count_variance'),
+    return_in: t('movementTypes.return_in'),
+    return_out: t('movementTypes.return_out'),
+    void: t('movementTypes.void'),
+  }
 
   const { data: movements } = await supabase
     .from('stock_movements')
@@ -57,8 +59,8 @@ export default async function MovementsReportPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Stock Movements</h1>
-            <p className="text-gray-600">Recent inventory movements (last 500)</p>
+            <h1 className="text-2xl font-bold text-gray-900">{t('reports.movements')}</h1>
+            <p className="text-gray-600">{t('reports.recentMovements')}</p>
           </div>
         </div>
         <MovementsExport data={exportData} />
@@ -66,21 +68,21 @@ export default async function MovementsReportPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Movement History</CardTitle>
+          <CardTitle>{t('reports.movementHistory')}</CardTitle>
         </CardHeader>
         <CardContent>
           {movements && movements.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Cost</TableHead>
-                  <TableHead>Reference</TableHead>
+                  <TableHead>{t('common.date')}</TableHead>
+                  <TableHead>{t('locations.type')}</TableHead>
+                  <TableHead>{t('products.sku')}</TableHead>
+                  <TableHead>{t('products.product')}</TableHead>
+                  <TableHead>{t('stock.location')}</TableHead>
+                  <TableHead className="text-right">{t('common.quantity')}</TableHead>
+                  <TableHead className="text-right">{t('reports.cost')}</TableHead>
+                  <TableHead>{t('reports.reference')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -90,7 +92,7 @@ export default async function MovementsReportPage() {
                     <TableCell>{formatDate(m.created_at)}</TableCell>
                     <TableCell>
                       <Badge variant="outline">
-                        {MOVEMENT_LABELS[m.movement_type as keyof typeof MOVEMENT_LABELS] || m.movement_type}
+                        {MOVEMENT_LABELS[m.movement_type] || m.movement_type}
                       </Badge>
                     </TableCell>
                     <TableCell className="font-mono">{m.product?.sku}</TableCell>
@@ -114,7 +116,7 @@ export default async function MovementsReportPage() {
               </TableBody>
             </Table>
           ) : (
-            <p className="text-center text-gray-500 py-8">No stock movements found</p>
+            <p className="text-center text-gray-500 py-8">{t('reports.noMovements')}</p>
           )}
         </CardContent>
       </Card>

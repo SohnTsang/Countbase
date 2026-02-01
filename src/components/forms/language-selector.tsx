@@ -10,14 +10,22 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Globe } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 export function LanguageSelector() {
-  const { locale, setLocale, t } = useTranslation()
+  const { locale, setLocale } = useTranslation()
+  const router = useRouter()
+
+  const handleLanguageChange = (value: string) => {
+    setLocale(value as Locale)
+    // Refresh the page to update server components with new language
+    router.refresh()
+  }
 
   return (
     <div className="flex items-center gap-2">
       <Globe className="h-4 w-4 text-gray-500" />
-      <Select value={locale} onValueChange={(value) => setLocale(value as Locale)}>
+      <Select value={locale} onValueChange={handleLanguageChange}>
         <SelectTrigger className="w-40">
           <SelectValue />
         </SelectTrigger>
