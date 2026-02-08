@@ -8,10 +8,23 @@ import { ArrowLeft, Copy, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { toast } from 'sonner'
 import { createTenant, updateTenant } from '@/lib/actions/tenants'
 import type { Tenant } from '@/types'
+
+const languages = [
+  { value: 'en', label: 'English' },
+  { value: 'ja', label: '日本語 (Japanese)' },
+  { value: 'zh', label: '简体中文 (Chinese)' },
+]
 
 interface TenantFormProps {
   tenant?: Tenant
@@ -22,6 +35,7 @@ interface FormData {
   name: string
   max_users: number
   admin_email?: string
+  language: string
 }
 
 export function TenantForm({ tenant, userCount = 0 }: TenantFormProps) {
@@ -41,6 +55,8 @@ export function TenantForm({ tenant, userCount = 0 }: TenantFormProps) {
   const {
     register,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors },
     setError,
   } = useForm<FormData>({
@@ -48,6 +64,7 @@ export function TenantForm({ tenant, userCount = 0 }: TenantFormProps) {
       name: tenant?.name || '',
       max_users: tenant?.max_users || 10,
       admin_email: '',
+      language: tenant?.settings?.default_locale || 'en',
     },
   })
 
@@ -59,6 +76,7 @@ export function TenantForm({ tenant, userCount = 0 }: TenantFormProps) {
         const result = await updateTenant(tenant.id, {
           name: data.name,
           max_users: data.max_users,
+          language: data.language,
         })
 
         if (result.error) {
@@ -88,6 +106,7 @@ export function TenantForm({ tenant, userCount = 0 }: TenantFormProps) {
           name: data.name,
           max_users: data.max_users,
           admin_email: data.admin_email,
+          language: data.language,
         }) as {
           error?: Record<string, string | string[]>
           success?: boolean
@@ -189,6 +208,28 @@ export function TenantForm({ tenant, userCount = 0 }: TenantFormProps) {
               )}
               <p className="text-sm text-gray-500">
                 The maximum number of users this organization can have
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="language">Default Language *</Label>
+              <Select
+                value={watch('language')}
+                onValueChange={(value) => setValue('language', value)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {languages.map((lang) => (
+                    <SelectItem key={lang.value} value={lang.value}>
+                      {lang.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-gray-500">
+                Used for invitation emails and default user interface language
               </p>
             </div>
           </CardContent>

@@ -15,6 +15,7 @@ export interface Tenant {
     reservation_expiry_hours: number
     require_adjustment_approval: boolean
     default_currency: string
+    default_locale?: string
   }
   created_at: string
 }

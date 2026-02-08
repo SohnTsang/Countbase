@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { sendInvitationEmail } from '@/lib/email/send'
 import { emailConfig } from '@/lib/email/config'
 import { createAuditLog } from '@/lib/audit'
@@ -377,13 +377,15 @@ export async function cancelInvitation(invitationId: string) {
  */
 export async function getInvitationByToken(token: string): Promise<{
   invitation: UserInvitation | null
+  locale?: string
   error?: string
 }> {
-  const supabase = await createClient()
+  // Use service client to bypass RLS so we can join tenants table for anonymous users
+  const supabase = createServiceClient()
 
   const { data, error } = await supabase
     .from('user_invitations')
-    .select('*, tenant:tenants(name)')
+    .select('*, tenant:tenants(name, settings)')
     .eq('token', token)
     .single()
 
@@ -401,7 +403,11 @@ export async function getInvitationByToken(token: string): Promise<{
     return { invitation: null, error: 'This invitation has expired' }
   }
 
-  return { invitation: data as UserInvitation }
+  // Extract tenant locale
+  const tenantData = data.tenant as { name: string; settings?: Record<string, unknown> } | null
+  const tenantLocale = (tenantData?.settings?.default_locale as string) || 'en'
+
+  return { invitation: data as UserInvitation, locale: tenantLocale }
 }
 
 /**
@@ -412,7 +418,8 @@ export async function acceptInvitation(formData: {
   name: string
   password: string
 }) {
-  const supabase = await createClient()
+  // Use service client to create auth users and write to tables
+  const supabase = createServiceClient()
 
   // Validate input
   const validated = acceptInvitationSchema.safeParse(formData)

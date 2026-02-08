@@ -11,9 +11,35 @@ import { acceptInvitation } from '@/lib/actions/invitations'
 import { CheckCircle, Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 
+interface AcceptInvitationFormTranslations {
+  email: string
+  fullName: string
+  fullNamePlaceholder: string
+  fullNameRequired: string
+  fullNameMinLength: string
+  password: string
+  passwordPlaceholder: string
+  passwordRequired: string
+  passwordMinLength: string
+  passwordHint: string
+  confirmPassword: string
+  confirmPasswordPlaceholder: string
+  confirmPasswordRequired: string
+  passwordsDoNotMatch: string
+  createAccount: string
+  creatingAccount: string
+  alreadyHaveAccount: string
+  signIn: string
+  successTitle: string
+  successDescription: string
+  goToLogin: string
+  accountCreatedSuccess: string
+}
+
 interface AcceptInvitationFormProps {
   token: string
   email: string
+  translations: AcceptInvitationFormTranslations
 }
 
 interface FormData {
@@ -22,7 +48,7 @@ interface FormData {
   confirmPassword: string
 }
 
-export function AcceptInvitationForm({ token, email }: AcceptInvitationFormProps) {
+export function AcceptInvitationForm({ token, email, translations: t }: AcceptInvitationFormProps) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
@@ -46,7 +72,7 @@ export function AcceptInvitationForm({ token, email }: AcceptInvitationFormProps
 
   const onSubmit = async (data: FormData) => {
     if (data.password !== data.confirmPassword) {
-      setError('confirmPassword', { message: 'Passwords do not match' })
+      setError('confirmPassword', { message: t.passwordsDoNotMatch })
       return
     }
 
@@ -75,7 +101,7 @@ export function AcceptInvitationForm({ token, email }: AcceptInvitationFormProps
       }
 
       setIsSuccess(true)
-      toast.success('Account created successfully!')
+      toast.success(t.accountCreatedSuccess)
 
       // Redirect to login after a short delay
       setTimeout(() => {
@@ -92,12 +118,12 @@ export function AcceptInvitationForm({ token, email }: AcceptInvitationFormProps
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
           <CheckCircle className="h-6 w-6 text-green-600" />
         </div>
-        <h3 className="text-lg font-semibold text-gray-900">Account Created!</h3>
+        <h3 className="text-lg font-semibold text-gray-900">{t.successTitle}</h3>
         <p className="mt-2 text-sm text-gray-500">
-          Your account has been created successfully. Redirecting to login...
+          {t.successDescription}
         </p>
         <Link href="/login" className="mt-4 inline-block">
-          <Button>Go to Login</Button>
+          <Button>{t.goToLogin}</Button>
         </Link>
       </div>
     )
@@ -106,19 +132,19 @@ export function AcceptInvitationForm({ token, email }: AcceptInvitationFormProps
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="email">Email</Label>
+        <Label htmlFor="email">{t.email}</Label>
         <Input id="email" type="email" value={email} disabled className="bg-gray-50" />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="name">Full Name *</Label>
+        <Label htmlFor="name">{t.fullName} *</Label>
         <Input
           id="name"
           {...register('name', {
-            required: 'Name is required',
-            minLength: { value: 2, message: 'Name must be at least 2 characters' },
+            required: t.fullNameRequired,
+            minLength: { value: 2, message: t.fullNameMinLength },
           })}
-          placeholder="Enter your full name"
+          placeholder={t.fullNamePlaceholder}
           autoFocus
         />
         {errors.name && (
@@ -127,16 +153,16 @@ export function AcceptInvitationForm({ token, email }: AcceptInvitationFormProps
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="password">Password *</Label>
+        <Label htmlFor="password">{t.password} *</Label>
         <div className="relative">
           <Input
             id="password"
             type={showPassword ? 'text' : 'password'}
             {...register('password', {
-              required: 'Password is required',
-              minLength: { value: 8, message: 'Password must be at least 8 characters' },
+              required: t.passwordRequired,
+              minLength: { value: 8, message: t.passwordMinLength },
             })}
-            placeholder="Create a password"
+            placeholder={t.passwordPlaceholder}
           />
           <button
             type="button"
@@ -149,19 +175,19 @@ export function AcceptInvitationForm({ token, email }: AcceptInvitationFormProps
         {errors.password && (
           <p className="text-sm text-red-600">{errors.password.message}</p>
         )}
-        <p className="text-xs text-gray-500">Must be at least 8 characters</p>
+        <p className="text-xs text-gray-500">{t.passwordHint}</p>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="confirmPassword">Confirm Password *</Label>
+        <Label htmlFor="confirmPassword">{t.confirmPassword} *</Label>
         <Input
           id="confirmPassword"
           type={showPassword ? 'text' : 'password'}
           {...register('confirmPassword', {
-            required: 'Please confirm your password',
-            validate: (value) => value === password || 'Passwords do not match',
+            required: t.confirmPasswordRequired,
+            validate: (value) => value === password || t.passwordsDoNotMatch,
           })}
-          placeholder="Confirm your password"
+          placeholder={t.confirmPasswordPlaceholder}
         />
         {errors.confirmPassword && (
           <p className="text-sm text-red-600">{errors.confirmPassword.message}</p>
@@ -169,13 +195,13 @@ export function AcceptInvitationForm({ token, email }: AcceptInvitationFormProps
       </div>
 
       <Button type="submit" className="w-full" disabled={isSubmitting}>
-        {isSubmitting ? 'Creating Account...' : 'Create Account'}
+        {isSubmitting ? t.creatingAccount : t.createAccount}
       </Button>
 
       <p className="text-center text-xs text-gray-500">
-        Already have an account?{' '}
+        {t.alreadyHaveAccount}{' '}
         <Link href="/login" className="text-emerald-600 hover:underline">
-          Sign in
+          {t.signIn}
         </Link>
       </p>
     </form>

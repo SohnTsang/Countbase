@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { cookies } from 'next/headers'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { sendInvitationEmail } from '@/lib/email/send'
 import { emailConfig } from '@/lib/email/config'
@@ -13,19 +12,14 @@ const createTenantSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
   max_users: z.number().int().min(1).max(1000).default(10),
   admin_email: z.string().email('Invalid email address'),
+  language: z.enum(['en', 'ja', 'zh']).default('en'),
 })
 
 const updateTenantSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
   max_users: z.number().int().min(1).max(1000),
+  language: z.enum(['en', 'ja', 'zh']).default('en'),
 })
-
-// Get current user's locale from cookies
-async function getLocale(): Promise<'en' | 'ja' | 'zh' | 'es'> {
-  const cookieStore = await cookies()
-  const locale = cookieStore.get('locale')?.value || 'en'
-  return locale as 'en' | 'ja' | 'zh' | 'es'
-}
 
 /**
  * Check if current user is platform admin
@@ -142,6 +136,7 @@ export async function createTenant(formData: {
   name: string
   max_users: number
   admin_email: string
+  language?: string
 }) {
   const { error, user, adminClient } = await requirePlatformAdmin()
   if (error || !adminClient || !user) {
@@ -175,6 +170,7 @@ export async function createTenant(formData: {
         reservation_expiry_hours: 24,
         require_adjustment_approval: false,
         default_currency: 'USD',
+        default_locale: validated.data.language,
       },
     })
     .select()
@@ -209,9 +205,7 @@ export async function createTenant(formData: {
     return { error: { _form: ['Failed to create admin invitation'] } }
   }
 
-  // Send invitation email
-  const locale = await getLocale()
-
+  // Send invitation email using the tenant's language
   const emailResult = await sendInvitationEmail({
     to: validated.data.admin_email,
     invitedByName: user.name,
@@ -219,7 +213,7 @@ export async function createTenant(formData: {
     role: 'admin',
     token: invitation.token,
     expiresAt,
-    locale,
+    locale: validated.data.language as 'en' | 'ja' | 'zh' | 'es',
   })
 
   if (!emailResult.success) {
@@ -239,6 +233,7 @@ export async function createTenant(formData: {
 export async function updateTenant(tenantId: string, formData: {
   name: string
   max_users: number
+  language?: string
 }) {
   const { error, adminClient } = await requirePlatformAdmin()
   if (error || !adminClient) {
@@ -262,12 +257,25 @@ export async function updateTenant(tenantId: string, formData: {
     return { error: { max_users: [`Cannot set below current user count (${userCount})`] } }
   }
 
+  // Get current settings to merge
+  const { data: currentTenant } = await adminClient
+    .from('tenants')
+    .select('settings')
+    .eq('id', tenantId)
+    .single()
+
+  const currentSettings = (currentTenant?.settings as Record<string, unknown>) || {}
+
   // Update tenant
   const { error: updateError } = await adminClient
     .from('tenants')
     .update({
       name: validated.data.name,
       max_users: validated.data.max_users,
+      settings: {
+        ...currentSettings,
+        default_locale: validated.data.language,
+      },
     })
     .eq('id', tenantId)
 
@@ -296,7 +304,7 @@ export async function inviteUserToTenant(tenantId: string, formData: {
   // Get tenant
   const { data: tenant } = await adminClient
     .from('tenants')
-    .select('name, max_users')
+    .select('name, max_users, settings')
     .eq('id', tenantId)
     .single()
 
@@ -381,8 +389,9 @@ export async function inviteUserToTenant(tenantId: string, formData: {
     return { error: { _form: ['Failed to create invitation'] } }
   }
 
-  // Send email
-  const locale = await getLocale()
+  // Send email using tenant's default language
+  const tenantSettings = tenant.settings as Record<string, unknown> | null
+  const locale = (tenantSettings?.default_locale as string) || 'en'
 
   const emailResult = await sendInvitationEmail({
     to: formData.email,
@@ -428,7 +437,7 @@ export async function resendTenantInvitation(invitationId: string, tenantId: str
 
   const { data: tenant } = await adminClient
     .from('tenants')
-    .select('name')
+    .select('name, settings')
     .eq('id', tenantId)
     .single()
 
@@ -451,7 +460,8 @@ export async function resendTenantInvitation(invitationId: string, tenantId: str
     return { error: 'Failed to update invitation' }
   }
 
-  const locale = await getLocale()
+  const tenantSettings2 = tenant?.settings as Record<string, unknown> | null
+  const locale = (tenantSettings2?.default_locale as string) || 'en'
   const emailResult = await sendInvitationEmail({
     to: updatedInvitation.email,
     invitedByName: user.name,
@@ -459,7 +469,7 @@ export async function resendTenantInvitation(invitationId: string, tenantId: str
     role: updatedInvitation.role,
     token: updatedInvitation.token,
     expiresAt: newExpiresAt,
-    locale,
+    locale: locale as 'en' | 'ja' | 'zh' | 'es',
   })
 
   if (!emailResult.success) {
