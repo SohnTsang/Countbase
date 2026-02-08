@@ -400,3 +400,64 @@ export async function inviteUserToTenant(tenantId: string, formData: {
   revalidatePath(`/admin/tenants/${tenantId}`)
   return { success: true }
 }
+
+/**
+ * Delete a tenant and all associated data (platform admin only)
+ */
+export async function deleteTenant(tenantId: string) {
+  const { error, adminClient } = await requirePlatformAdmin()
+  if (error || !adminClient) {
+    return { error: error || 'Unauthorized' }
+  }
+
+  // Verify tenant exists
+  const { data: tenant } = await adminClient
+    .from('tenants')
+    .select('id, name')
+    .eq('id', tenantId)
+    .single()
+
+  if (!tenant) {
+    return { error: 'Organization not found' }
+  }
+
+  // Delete all related data
+  // 1. Delete invitations
+  await adminClient
+    .from('user_invitations')
+    .delete()
+    .eq('tenant_id', tenantId)
+
+  // 2. Get users to delete their auth accounts
+  const { data: users } = await adminClient
+    .from('users')
+    .select('id')
+    .eq('tenant_id', tenantId)
+
+  // 3. Delete user records
+  await adminClient
+    .from('users')
+    .delete()
+    .eq('tenant_id', tenantId)
+
+  // 4. Delete auth users
+  if (users && users.length > 0) {
+    for (const user of users) {
+      await adminClient.auth.admin.deleteUser(user.id)
+    }
+  }
+
+  // 5. Delete the tenant
+  const { error: deleteError } = await adminClient
+    .from('tenants')
+    .delete()
+    .eq('id', tenantId)
+
+  if (deleteError) {
+    console.error('Error deleting tenant:', deleteError)
+    return { error: 'Failed to delete organization' }
+  }
+
+  revalidatePath('/admin/tenants')
+  return { success: true }
+}

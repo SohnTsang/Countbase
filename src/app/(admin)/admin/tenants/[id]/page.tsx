@@ -26,6 +26,7 @@ import {
 import { formatDistanceToNow, format } from 'date-fns'
 import { TenantInviteForm } from '@/components/forms/tenant-invite-form'
 import { TenantInvitationActions } from '@/components/admin/tenant-invitation-actions'
+import { DeleteTenantButton } from '@/components/admin/delete-tenant-button'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -76,12 +77,15 @@ export default async function TenantDetailPage({ params }: PageProps) {
             </div>
           </div>
         </div>
-        <Link href={`/admin/tenants/${tenant.id}/edit`}>
-          <Button variant="outline">
-            <Edit className="mr-2 h-4 w-4" />
-            Edit
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href={`/admin/tenants/${tenant.id}/edit`}>
+            <Button variant="outline">
+              <Edit className="mr-2 h-4 w-4" />
+              Edit
+            </Button>
+          </Link>
+          <DeleteTenantButton tenantId={tenant.id} tenantName={tenant.name} />
+        </div>
       </div>
 
       {/* Stats */}
