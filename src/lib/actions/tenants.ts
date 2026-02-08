@@ -402,6 +402,105 @@ export async function inviteUserToTenant(tenantId: string, formData: {
 }
 
 /**
+ * Resend a tenant invitation (platform admin only)
+ */
+export async function resendTenantInvitation(invitationId: string, tenantId: string) {
+  const { error, user, adminClient } = await requirePlatformAdmin()
+  if (error || !adminClient || !user) {
+    return { error: error || 'Unauthorized' }
+  }
+
+  const { data: invitation } = await adminClient
+    .from('user_invitations')
+    .select('*')
+    .eq('id', invitationId)
+    .eq('tenant_id', tenantId)
+    .is('accepted_at', null)
+    .single()
+
+  if (!invitation) {
+    return { error: 'Invitation not found or already accepted' }
+  }
+
+  const { data: tenant } = await adminClient
+    .from('tenants')
+    .select('name')
+    .eq('id', tenantId)
+    .single()
+
+  const newExpiresAt = new Date()
+  newExpiresAt.setHours(newExpiresAt.getHours() + emailConfig.invitationExpiryHours)
+
+  const { data: updatedInvitation, error: updateError } = await adminClient
+    .from('user_invitations')
+    .update({
+      token: crypto.randomUUID(),
+      expires_at: newExpiresAt.toISOString(),
+      invited_by: user.id,
+      invited_by_name: user.name,
+    })
+    .eq('id', invitationId)
+    .select()
+    .single()
+
+  if (updateError || !updatedInvitation) {
+    return { error: 'Failed to update invitation' }
+  }
+
+  const locale = await getLocale()
+  const emailResult = await sendInvitationEmail({
+    to: updatedInvitation.email,
+    invitedByName: user.name,
+    tenantName: tenant?.name || 'Organization',
+    role: updatedInvitation.role,
+    token: updatedInvitation.token,
+    expiresAt: newExpiresAt,
+    locale,
+  })
+
+  if (!emailResult.success) {
+    return { error: 'Failed to send invitation email' }
+  }
+
+  revalidatePath(`/admin/tenants/${tenantId}`)
+  return { success: true }
+}
+
+/**
+ * Cancel a tenant invitation (platform admin only)
+ */
+export async function cancelTenantInvitation(invitationId: string, tenantId: string) {
+  const { error, adminClient } = await requirePlatformAdmin()
+  if (error || !adminClient) {
+    return { error: error || 'Unauthorized' }
+  }
+
+  const { data: invitation } = await adminClient
+    .from('user_invitations')
+    .select('email')
+    .eq('id', invitationId)
+    .eq('tenant_id', tenantId)
+    .is('accepted_at', null)
+    .single()
+
+  if (!invitation) {
+    return { error: 'Invitation not found or already accepted' }
+  }
+
+  const { error: deleteError } = await adminClient
+    .from('user_invitations')
+    .delete()
+    .eq('id', invitationId)
+
+  if (deleteError) {
+    return { error: 'Failed to cancel invitation' }
+  }
+
+  revalidatePath(`/admin/tenants/${tenantId}`)
+  return { success: true }
+}
+
+/**
  * Delete a tenant and all associated data (platform admin only)
  */
 export async function deleteTenant(tenantId: string) {

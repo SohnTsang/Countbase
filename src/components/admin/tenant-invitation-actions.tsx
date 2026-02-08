@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
 import { MoreHorizontal, RefreshCw, Trash2 } from 'lucide-react'
-import { resendInvitation, cancelInvitation } from '@/lib/actions/invitations'
+import { resendTenantInvitation, cancelTenantInvitation } from '@/lib/actions/tenants'
 
 interface TenantInvitationActionsProps {
   invitationId: string
@@ -28,7 +28,7 @@ export function TenantInvitationActions({
   const handleResend = async () => {
     setIsLoading(true)
     try {
-      const result = await resendInvitation(invitationId)
+      const result = await resendTenantInvitation(invitationId, tenantId)
       if (result.error) {
         toast.error(result.error)
       } else {
@@ -45,7 +45,7 @@ export function TenantInvitationActions({
 
     setIsLoading(true)
     try {
-      const result = await cancelInvitation(invitationId)
+      const result = await cancelTenantInvitation(invitationId, tenantId)
       if (result.error) {
         toast.error(result.error)
       } else {
