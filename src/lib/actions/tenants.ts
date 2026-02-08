@@ -5,6 +5,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { sendInvitationEmail } from '@/lib/email/send'
 import { emailConfig } from '@/lib/email/config'
 import type { Tenant, User, UserInvitation } from '@/types'
+import type { Locale } from '@/lib/i18n/config'
 import { z } from 'zod'
 
 // Validation schemas
@@ -213,7 +214,7 @@ export async function createTenant(formData: {
     role: 'admin',
     token: invitation.token,
     expiresAt,
-    locale: validated.data.language as 'en' | 'ja' | 'zh' | 'es',
+    locale: validated.data.language as Locale,
   })
 
   if (!emailResult.success) {
@@ -391,7 +392,7 @@ export async function inviteUserToTenant(tenantId: string, formData: {
 
   // Send email using tenant's default language
   const tenantSettings = tenant.settings as Record<string, unknown> | null
-  const locale = (tenantSettings?.default_locale as string) || 'en'
+  const locale = ((tenantSettings?.default_locale as string) || 'en') as Locale
 
   const emailResult = await sendInvitationEmail({
     to: formData.email,
@@ -461,7 +462,7 @@ export async function resendTenantInvitation(invitationId: string, tenantId: str
   }
 
   const tenantSettings2 = tenant?.settings as Record<string, unknown> | null
-  const locale = (tenantSettings2?.default_locale as string) || 'en'
+  const locale2 = ((tenantSettings2?.default_locale as string) || 'en') as Locale
   const emailResult = await sendInvitationEmail({
     to: updatedInvitation.email,
     invitedByName: user.name,
@@ -469,7 +470,7 @@ export async function resendTenantInvitation(invitationId: string, tenantId: str
     role: updatedInvitation.role,
     token: updatedInvitation.token,
     expiresAt: newExpiresAt,
-    locale: locale as 'en' | 'ja' | 'zh' | 'es',
+    locale: locale2,
   })
 
   if (!emailResult.success) {
