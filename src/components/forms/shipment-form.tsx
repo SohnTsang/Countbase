@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter } from 'next/navigation'
@@ -27,8 +27,9 @@ import {
 import { Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createShipmentSchema, type ShipmentFormData } from '@/lib/validations/shipment'
-import { createShipment } from '@/lib/actions/shipments'
+import { createShipment, updateShipment } from '@/lib/actions/shipments'
 import { useTranslation } from '@/lib/i18n'
+import { DocumentUpload, type DocumentUploadHandle } from '@/components/documents/document-upload'
 import type { Customer, Location, Product, InventoryBalance } from '@/types'
 
 interface ShipmentFormProps {
@@ -36,11 +37,22 @@ interface ShipmentFormProps {
   locations: Location[]
   products: Product[]
   stockBalances: InventoryBalance[]
+  initialData?: {
+    id: string
+    location_id: string
+    customer_id: string | null
+    customer_name: string | null
+    ship_date: string | null
+    notes: string | null
+    lines: { product_id: string; qty: number; lot_number: string | null; expiry_date: string | null }[]
+  }
 }
 
-export function ShipmentForm({ customers, locations, products, stockBalances }: ShipmentFormProps) {
+export function ShipmentForm({ customers, locations, products, stockBalances, initialData }: ShipmentFormProps) {
   const router = useRouter()
   const { t } = useTranslation()
+  const docUploadRef = useRef<DocumentUploadHandle>(null)
+  const isEdit = !!initialData
 
   const schema = useMemo(() => createShipmentSchema(t), [t])
 
@@ -54,14 +66,28 @@ export function ShipmentForm({ customers, locations, products, stockBalances }: 
   } = useForm<ShipmentFormData>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(schema) as any,
-    defaultValues: {
-      location_id: '',
-      customer_id: '',
-      customer_name: '',
-      ship_date: new Date().toISOString().split('T')[0],
-      notes: '',
-      lines: [{ product_id: '', qty: 1, lot_number: '', expiry_date: '' }],
-    },
+    defaultValues: initialData
+      ? {
+          location_id: initialData.location_id,
+          customer_id: initialData.customer_id || '',
+          customer_name: initialData.customer_name || '',
+          ship_date: initialData.ship_date || new Date().toISOString().split('T')[0],
+          notes: initialData.notes || '',
+          lines: initialData.lines.map((l) => ({
+            product_id: l.product_id,
+            qty: l.qty,
+            lot_number: l.lot_number || '',
+            expiry_date: l.expiry_date || '',
+          })),
+        }
+      : {
+          location_id: '',
+          customer_id: '',
+          customer_name: '',
+          ship_date: new Date().toISOString().split('T')[0],
+          notes: '',
+          lines: [{ product_id: '', qty: 1, lot_number: '', expiry_date: '' }],
+        },
   })
 
   const { fields, append, remove } = useFieldArray({
@@ -72,33 +98,80 @@ export function ShipmentForm({ customers, locations, products, stockBalances }: 
   const watchedLocationId = watch('location_id')
   const watchedCustomerId = watch('customer_id')
 
-  // Get available stock for selected location
-  const getAvailableStock = (productId: string) => {
-    const balance = stockBalances.find(
-      (b) => b.product_id === productId && b.location_id === watchedLocationId
+  // Only show products that have stock in the selected source location
+  const availableProducts = useMemo(() => {
+    if (!watchedLocationId) return []
+    const productIdsWithStock = new Set(
+      stockBalances
+        .filter((b) => b.location_id === watchedLocationId && b.qty_on_hand > 0)
+        .map((b) => b.product_id)
     )
+    return products.filter((p) => p.active && productIdsWithStock.has(p.id))
+  }, [watchedLocationId, stockBalances, products])
+
+  // Get total available stock for a product at selected location (sum of all lots)
+  const getTotalStock = (productId: string) => {
+    return stockBalances
+      .filter((b) => b.product_id === productId && b.location_id === watchedLocationId)
+      .reduce((sum, b) => sum + b.qty_on_hand, 0)
+  }
+
+  // Get all available lots/batches for a product at selected location
+  const getAvailableLots = (productId: string) => {
+    return stockBalances.filter(
+      (b) => b.product_id === productId && b.location_id === watchedLocationId && b.qty_on_hand > 0
+    )
+  }
+
+  // Get stock for a specific balance by ID
+  const getLotStock = (balanceId: string) => {
+    const balance = stockBalances.find((b) => b.id === balanceId)
     return balance?.qty_on_hand || 0
   }
 
+  // Format lot display text
+  const formatLotDisplay = (balance: InventoryBalance) => {
+    const parts: string[] = []
+    if (balance.lot_number) {
+      parts.push(balance.lot_number)
+    } else {
+      parts.push(t('stock.noLot'))
+    }
+    if (balance.expiry_date) {
+      parts.push(`${t('stock.expiry')}: ${balance.expiry_date}`)
+    }
+    const uom = products.find(p => p.id === balance.product_id)?.base_uom
+    parts.push(`(${balance.qty_on_hand} ${uom ? t(`uom.${uom}`) : ''})`)
+    return parts.join(' - ')
+  }
+
   const onSubmit = async (data: ShipmentFormData) => {
-    // Clear customer_id if using customer_name
     if (data.customer_name && !data.customer_id) {
       data.customer_id = null
     }
 
     try {
-      const result = await createShipment(data)
+      const result = isEdit
+        ? await updateShipment(initialData!.id, data)
+        : await createShipment(data)
 
-      if (result?.error) {
-        if (typeof result.error === 'object' && '_form' in result.error) {
-          toast.error((result.error as { _form: string[] })._form?.[0])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err = (result as any)?.error
+      if (err) {
+        if (typeof err === 'object' && '_form' in err) {
+          toast.error((err as { _form: string[] })._form?.[0])
         } else {
           toast.error(t('toast.validationError'))
         }
         return
       }
-      toast.success(t('toast.shipmentCreated'))
-    } catch (error) {
+      toast.success(isEdit ? t('toast.shipmentUpdated') : t('toast.shipmentCreated'))
+      if (!isEdit && (result as any)?.id) {
+        await docUploadRef.current?.uploadQueuedFiles((result as any).id)
+      }
+      router.replace(isEdit ? `/shipments/${initialData!.id}` : '/shipments')
+      router.refresh()
+    } catch {
       toast.error(t('toast.errorOccurred'))
     }
   }
@@ -107,7 +180,7 @@ export function ShipmentForm({ customers, locations, products, stockBalances }: 
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>{t('shipments.newShipment')}</CardTitle>
+          <CardTitle>{isEdit ? t('shipments.editShipment') : t('shipments.newShipment')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -115,7 +188,16 @@ export function ShipmentForm({ customers, locations, products, stockBalances }: 
               <Label>{t('shipments.shipFromLocation')} *</Label>
               <Select
                 value={watch('location_id')}
-                onValueChange={(value) => setValue('location_id', value)}
+                onValueChange={(value) => {
+                  setValue('location_id', value)
+                  // Clear product and lot selections when location changes
+                  const currentLines = watch('lines')
+                  currentLines.forEach((_, index) => {
+                    setValue(`lines.${index}.product_id`, '')
+                    setValue(`lines.${index}.lot_number`, '')
+                    setValue(`lines.${index}.expiry_date`, '')
+                  })
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder={t('common.selectOption')} />
@@ -213,32 +295,49 @@ export function ShipmentForm({ customers, locations, products, stockBalances }: 
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[300px]">{t('products.title')}</TableHead>
-                  <TableHead className="w-[100px]">{t('stock.available')}</TableHead>
+                  <TableHead className="w-[250px]">{t('products.title')}</TableHead>
+                  <TableHead className="w-[280px]">{t('stock.lotBatch')}</TableHead>
+                  <TableHead className="w-[140px]">{t('stock.available')}</TableHead>
                   <TableHead className="w-[100px]">{t('common.quantity')}</TableHead>
-                  <TableHead className="w-[120px]">{t('stock.lotNumber')}</TableHead>
-                  <TableHead className="w-[140px]">{t('stock.expiryDate')}</TableHead>
                   <TableHead className="w-[60px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {fields.map((field, index) => {
                   const productId = watch(`lines.${index}.product_id`)
-                  const available = getAvailableStock(productId)
+                  const lotNumber = watch(`lines.${index}.lot_number`)
+                  const expiryDate = watch(`lines.${index}.expiry_date`)
                   const product = products.find((p) => p.id === productId)
+                  const availableLots = productId ? getAvailableLots(productId) : []
+                  const totalStock = productId ? getTotalStock(productId) : 0
+
+                  // Find the selected balance
+                  const selectedBalance = stockBalances.find(
+                    (b) =>
+                      b.product_id === productId &&
+                      b.location_id === watchedLocationId &&
+                      (b.lot_number || '') === (lotNumber || '') &&
+                      (b.expiry_date || '') === (expiryDate || '')
+                  )
+                  const lotStock = selectedBalance?.qty_on_hand || 0
 
                   return (
                     <TableRow key={field.id}>
                       <TableCell>
                         <Select
                           value={watch(`lines.${index}.product_id`)}
-                          onValueChange={(value) => setValue(`lines.${index}.product_id`, value)}
+                          onValueChange={(value) => {
+                            setValue(`lines.${index}.product_id`, value)
+                            // Clear lot selection when product changes
+                            setValue(`lines.${index}.lot_number`, '')
+                            setValue(`lines.${index}.expiry_date`, '')
+                          }}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder={t('common.selectOption')} />
                           </SelectTrigger>
                           <SelectContent>
-                            {products.map((p) => (
+                            {availableProducts.map((p) => (
                               <SelectItem key={p.id} value={p.id}>
                                 {p.sku} - {p.name}
                               </SelectItem>
@@ -252,9 +351,51 @@ export function ShipmentForm({ customers, locations, products, stockBalances }: 
                         )}
                       </TableCell>
                       <TableCell>
-                        <span className={available > 0 ? 'text-green-600' : 'text-red-600'}>
-                          {available} {product?.base_uom}
-                        </span>
+                        {productId && availableLots.length > 0 ? (
+                          <Select
+                            value={selectedBalance?.id || 'none'}
+                            onValueChange={(balanceId) => {
+                              if (balanceId === 'none') {
+                                setValue(`lines.${index}.lot_number`, '')
+                                setValue(`lines.${index}.expiry_date`, '')
+                              } else {
+                                const balance = stockBalances.find((b) => b.id === balanceId)
+                                if (balance) {
+                                  setValue(`lines.${index}.lot_number`, balance.lot_number || '')
+                                  setValue(`lines.${index}.expiry_date`, balance.expiry_date || '')
+                                }
+                              }
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder={t('shipments.selectLot')} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">-- {t('shipments.selectLot')} --</SelectItem>
+                              {availableLots.map((balance) => (
+                                <SelectItem key={balance.id} value={balance.id}>
+                                  {formatLotDisplay(balance)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : productId ? (
+                          <span className="text-gray-400 text-sm">{t('stock.noStockAvailable')}</span>
+                        ) : (
+                          <span className="text-gray-400 text-sm">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          <div className={totalStock > 0 ? 'text-blue-600' : 'text-red-600'}>
+                            {t('common.total')}: {totalStock} {t(`uom.${product?.base_uom}`)}
+                          </div>
+                          {selectedBalance && (
+                            <div className={lotStock > 0 ? 'text-green-600' : 'text-red-600'}>
+                              {t('stock.lot')}: {lotStock} {t(`uom.${product?.base_uom}`)}
+                            </div>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Input
@@ -264,29 +405,6 @@ export function ShipmentForm({ customers, locations, products, stockBalances }: 
                           {...register(`lines.${index}.qty`)}
                           className="w-20"
                         />
-                      </TableCell>
-                      <TableCell>
-                        {product?.track_lot ? (
-                          <Input
-                            type="text"
-                            placeholder={t('stock.lotNumber')}
-                            {...register(`lines.${index}.lot_number`)}
-                            className="w-28"
-                          />
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {product?.track_expiry ? (
-                          <Input
-                            type="date"
-                            {...register(`lines.${index}.expiry_date`)}
-                            className="w-36"
-                          />
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
                       </TableCell>
                       <TableCell>
                         {fields.length > 1 && (
@@ -310,11 +428,13 @@ export function ShipmentForm({ customers, locations, products, stockBalances }: 
         </CardContent>
       </Card>
 
+      {!isEdit && <DocumentUpload ref={docUploadRef} entityType="shipment" entityId={null} />}
+
       <div className="flex gap-4">
         <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? t('common.loading') : t('shipments.createShipment')}
+          {isSubmitting ? t('common.loading') : (isEdit ? t('shipments.updateShipment') : t('shipments.createShipment'))}
         </Button>
-        <Button type="button" variant="outline" onClick={() => router.push('/shipments')}>
+        <Button type="button" variant="outline" onClick={() => router.push(isEdit ? `/shipments/${initialData!.id}` : '/shipments')}>
           {t('common.cancel')}
         </Button>
       </div>

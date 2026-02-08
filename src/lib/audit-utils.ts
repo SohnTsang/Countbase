@@ -45,6 +45,7 @@ export const ACTION_LABELS: Record<AuditAction, string> = {
   count: 'Counted',
   return: 'Returned',
   approve: 'Approved',
+  upload: 'Uploaded',
 }
 
 // Resource type label mappings for display
@@ -61,6 +62,7 @@ export const RESOURCE_TYPE_LABELS: Record<AuditResourceType, string> = {
   adjustment: 'Adjustment',
   cycle_count: 'Cycle Count',
   return: 'Return',
+  document: 'Document',
   settings: 'Settings',
   tenant: 'Organization',
 }

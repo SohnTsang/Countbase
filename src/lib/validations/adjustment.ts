@@ -7,6 +7,7 @@ export const createAdjustmentLineSchema = (t: TranslationFn) => z.object({
   qty: z.coerce.number().refine((val) => val !== 0, t('validation.quantityNotZero')),
   lot_number: z.string().nullable().optional(),
   expiry_date: z.string().nullable().optional(),
+  unit_cost: z.coerce.number().min(0).nullable().optional(),
 })
 
 export const createAdjustmentSchema = (t: TranslationFn) => z.object({

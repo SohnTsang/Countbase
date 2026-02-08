@@ -5,6 +5,8 @@ type TranslationFn = (key: string) => string
 export const createCategorySchema = (t: TranslationFn) => z.object({
   name: z.string().min(1, t('validation.nameRequired')).max(100, t('validation.nameMaxLength')),
   parent_id: z.string().uuid().nullable().optional(),
+  is_parent: z.boolean().optional().default(false),
+  active: z.boolean().default(true),
 })
 
 // Default schema for type inference

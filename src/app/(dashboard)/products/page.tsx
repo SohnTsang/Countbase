@@ -9,6 +9,16 @@ export default async function ProductsPage() {
   const supabase = await createClient()
   const t = await getTranslator()
 
+  // Get current user's tenant settings for currency
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: userData } = await supabase
+    .from('users')
+    .select('tenant:tenants(settings)')
+    .eq('id', user?.id)
+    .single()
+
+  const currency = (userData?.tenant as { settings?: { default_currency?: string } })?.settings?.default_currency || 'USD'
+
   const { data: products, error } = await supabase
     .from('products')
     .select('*, category:categories(id, name)')
@@ -33,7 +43,7 @@ export default async function ProductsPage() {
         </Link>
       </div>
 
-      <ProductsTable data={products || []} />
+      <ProductsTable data={products || []} currency={currency} />
     </div>
   )
 }

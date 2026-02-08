@@ -16,6 +16,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { updateCountedQty, postCycleCount } from '@/lib/actions/cycle-counts'
+import { useTranslation } from '@/lib/i18n'
 import type { CycleCountLine, Product } from '@/types'
 
 interface CountEntryFormProps {
@@ -25,6 +26,7 @@ interface CountEntryFormProps {
 
 export function CountEntryForm({ countId, lines }: CountEntryFormProps) {
   const router = useRouter()
+  const { t } = useTranslation()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [countedValues, setCountedValues] = useState<Record<string, number>>(
     Object.fromEntries(
@@ -49,18 +51,18 @@ export function CountEntryForm({ countId, lines }: CountEntryFormProps) {
       if (result.error) {
         toast.error(result.error)
       } else {
-        toast.success('Counts saved')
+        toast.success(t('toast.countsSaved'))
         router.refresh()
       }
     } catch (error) {
-      toast.error('An error occurred')
+      toast.error(t('toast.errorOccurred'))
     } finally {
       setIsSubmitting(false)
     }
   }
 
   const handlePost = async () => {
-    if (!confirm('Post this cycle count? Variances will be applied to inventory.')) return
+    if (!confirm(t('cycleCounts.confirmPost'))) return
 
     // First save current counts
     await handleSave()
@@ -71,11 +73,11 @@ export function CountEntryForm({ countId, lines }: CountEntryFormProps) {
       if (result.error) {
         toast.error(result.error)
       } else {
-        toast.success('Cycle count posted successfully')
+        toast.success(t('toast.cycleCountPosted'))
         router.push('/cycle-counts')
       }
     } catch (error) {
-      toast.error('An error occurred')
+      toast.error(t('toast.errorOccurred'))
     } finally {
       setIsSubmitting(false)
     }
@@ -89,18 +91,18 @@ export function CountEntryForm({ countId, lines }: CountEntryFormProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Enter Counted Quantities</CardTitle>
+        <CardTitle>{t('cycleCounts.enterCountedQty')}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="rounded-md border overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[250px]">Product</TableHead>
-                <TableHead>Lot #</TableHead>
-                <TableHead className="text-right">System Qty</TableHead>
-                <TableHead className="w-[120px]">Counted Qty</TableHead>
-                <TableHead className="text-right">Variance</TableHead>
+                <TableHead className="w-[250px]">{t('products.product')}</TableHead>
+                <TableHead>{t('stock.lotNumber')}</TableHead>
+                <TableHead className="text-right">{t('cycleCounts.systemQty')}</TableHead>
+                <TableHead className="w-[120px]">{t('cycleCounts.countedQty')}</TableHead>
+                <TableHead className="text-right">{t('cycleCounts.variance')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -118,7 +120,7 @@ export function CountEntryForm({ countId, lines }: CountEntryFormProps) {
                     </TableCell>
                     <TableCell>{line.lot_number || '-'}</TableCell>
                     <TableCell className="text-right">
-                      {line.system_qty} {line.product?.base_uom}
+                      {line.system_qty} {line.product?.base_uom ? t(`uom.${line.product.base_uom}`) : ''}
                     </TableCell>
                     <TableCell>
                       <Input
@@ -134,7 +136,7 @@ export function CountEntryForm({ countId, lines }: CountEntryFormProps) {
                       <Badge
                         variant={variance === 0 ? 'secondary' : variance > 0 ? 'default' : 'destructive'}
                       >
-                        {variance > 0 ? '+' : ''}{variance} {line.product?.base_uom}
+                        {variance > 0 ? '+' : ''}{variance} {line.product?.base_uom ? t(`uom.${line.product.base_uom}`) : ''}
                       </Badge>
                     </TableCell>
                   </TableRow>
@@ -146,17 +148,17 @@ export function CountEntryForm({ countId, lines }: CountEntryFormProps) {
 
         <div className="flex items-center justify-between mt-6">
           <div className="text-sm">
-            Total Variance:{' '}
+            {t('cycleCounts.totalVariance')}:{' '}
             <span className={totalVariance === 0 ? 'text-green-600' : 'text-red-600 font-medium'}>
-              {totalVariance > 0 ? '+' : ''}{totalVariance} units
+              {totalVariance > 0 ? '+' : ''}{totalVariance} {t('common.units')}
             </span>
           </div>
           <div className="flex gap-4">
             <Button variant="outline" onClick={handleSave} disabled={isSubmitting}>
-              Save Counts
+              {t('cycleCounts.saveCounts')}
             </Button>
             <Button onClick={handlePost} disabled={isSubmitting}>
-              {isSubmitting ? 'Processing...' : 'Post Count'}
+              {isSubmitting ? t('common.loading') : t('cycleCounts.postCount')}
             </Button>
           </div>
         </div>

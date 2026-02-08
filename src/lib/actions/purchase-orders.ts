@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import {
   purchaseOrderSchema,
@@ -10,6 +9,7 @@ import {
   type ReceiveFormData,
 } from '@/lib/validations/purchase-order'
 import { createAuditLog } from '@/lib/audit'
+import { deleteEntityDocuments } from '@/lib/actions/documents'
 
 export async function createPurchaseOrder(formData: PurchaseOrderFormData) {
   const supabase = await createClient()
@@ -89,7 +89,73 @@ export async function createPurchaseOrder(formData: PurchaseOrderFormData) {
   })
 
   revalidatePath('/purchase-orders')
-  redirect('/purchase-orders')
+  return { success: true, id: po.id }
+}
+
+export async function updatePurchaseOrder(id: string, formData: PurchaseOrderFormData) {
+  const supabase = await createClient()
+
+  const validated = purchaseOrderSchema.safeParse(formData)
+  if (!validated.success) {
+    return { error: validated.error.flatten().fieldErrors }
+  }
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: { _form: ['Not authenticated'] } }
+
+  const { data: po } = await supabase
+    .from('purchase_orders')
+    .select('status, po_number')
+    .eq('id', id)
+    .single()
+
+  if (!po) return { error: { _form: ['Purchase order not found'] } }
+  if (po.status !== 'draft') return { error: { _form: ['Can only edit draft POs'] } }
+
+  const { error: updateError } = await supabase
+    .from('purchase_orders')
+    .update({
+      supplier_id: validated.data.supplier_id,
+      location_id: validated.data.location_id,
+      order_date: validated.data.order_date,
+      expected_date: validated.data.expected_date || null,
+      notes: validated.data.notes || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+
+  if (updateError) return { error: { _form: [updateError.message] } }
+
+  // Delete old lines and insert new ones
+  await supabase.from('purchase_order_lines').delete().eq('po_id', id)
+
+  const lines = validated.data.lines.map((line) => ({
+    po_id: id,
+    product_id: line.product_id,
+    qty_ordered: line.qty_ordered,
+    qty_received: 0,
+    unit_cost: line.unit_cost,
+  }))
+
+  const { error: linesError } = await supabase.from('purchase_order_lines').insert(lines)
+  if (linesError) return { error: { _form: [linesError.message] } }
+
+  await createAuditLog({
+    action: 'update',
+    resourceType: 'purchase_order',
+    resourceId: id,
+    resourceName: po.po_number,
+    newValues: {
+      supplier_id: validated.data.supplier_id,
+      location_id: validated.data.location_id,
+      order_date: validated.data.order_date,
+      lines_count: lines.length,
+    },
+  })
+
+  revalidatePath('/purchase-orders')
+  revalidatePath(`/purchase-orders/${id}`)
+  return { success: true }
 }
 
 export async function confirmPurchaseOrder(id: string) {
@@ -158,6 +224,7 @@ export async function receivePurchaseOrder(poId: string, formData: ReceiveFormDa
 
   const oldStatus = po.status
   const receivedItems: { product_id: string; qty: number }[] = []
+  const receivedDate = validated.data.received_date || new Date().toISOString().split('T')[0]
 
   // Process each line
   for (const line of validated.data.lines) {
@@ -186,14 +253,29 @@ export async function receivePurchaseOrder(poId: string, formData: ReceiveFormDa
     receivedItems.push({ product_id: line.product_id, qty: line.qty_to_receive })
 
     // Update or create inventory balance
-    const { data: existingBalance } = await supabase
+    let balanceQuery = supabase
       .from('inventory_balances')
       .select('id, qty_on_hand, avg_cost')
       .eq('product_id', line.product_id)
       .eq('location_id', po.location_id)
-      .is('lot_number', line.lot_number || null)
-      .is('expiry_date', line.expiry_date || null)
-      .maybeSingle()
+
+    // Handle lot_number: use .eq() for values, .is() for null
+    const lotNumber = line.lot_number?.trim() || null
+    if (lotNumber) {
+      balanceQuery = balanceQuery.eq('lot_number', lotNumber)
+    } else {
+      balanceQuery = balanceQuery.is('lot_number', null)
+    }
+
+    // Handle expiry_date: use .eq() for values, .is() for null
+    const expiryDate = line.expiry_date?.trim() || null
+    if (expiryDate) {
+      balanceQuery = balanceQuery.eq('expiry_date', expiryDate)
+    } else {
+      balanceQuery = balanceQuery.is('expiry_date', null)
+    }
+
+    const { data: existingBalance } = await balanceQuery.maybeSingle()
 
     if (existingBalance) {
       // Weighted average cost
@@ -214,8 +296,8 @@ export async function receivePurchaseOrder(poId: string, formData: ReceiveFormDa
         tenant_id: userData.tenant_id,
         product_id: line.product_id,
         location_id: po.location_id,
-        lot_number: line.lot_number || null,
-        expiry_date: line.expiry_date || null,
+        lot_number: lotNumber,
+        expiry_date: expiryDate,
         qty_on_hand: line.qty_to_receive,
         avg_cost: unitCost,
       })
@@ -236,8 +318,8 @@ export async function receivePurchaseOrder(poId: string, formData: ReceiveFormDa
       movement_type: 'receive',
       reference_type: 'po',
       reference_id: poId,
-      lot_number: line.lot_number || null,
-      expiry_date: line.expiry_date || null,
+      lot_number: lotNumber,
+      expiry_date: expiryDate,
       unit_cost: unitCost,
       created_by: user.id,
     })
@@ -268,13 +350,16 @@ export async function receivePurchaseOrder(poId: string, formData: ReceiveFormDa
     resourceId: poId,
     resourceName: po.po_number,
     oldValues: { status: oldStatus },
-    newValues: { status: newStatus, received_items: receivedItems },
-    notes: `Received ${receivedItems.length} item(s)`,
+    newValues: { status: newStatus, received_items: receivedItems, received_date: receivedDate },
+    notes: `Received ${receivedItems.length} item(s) on ${receivedDate}`,
   })
 
   revalidatePath('/purchase-orders')
   revalidatePath(`/purchase-orders/${poId}`)
   revalidatePath('/stock')
+  revalidatePath('/shipments/new')
+  revalidatePath('/transfers/new')
+  revalidatePath('/returns/new')
   return { success: true }
 }
 
@@ -325,6 +410,9 @@ export async function deletePurchaseOrder(id: string) {
   if (po.status !== 'draft') {
     return { error: 'Can only delete draft POs' }
   }
+
+  // Clean up attached documents
+  await deleteEntityDocuments('purchase_order', id)
 
   // Lines will be cascade deleted
   await supabase.from('purchase_orders').delete().eq('id', id)

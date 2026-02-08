@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   ColumnDef,
   flexRender,
@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -29,31 +30,52 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { StockHistorySheet } from '@/components/stock-history-sheet'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import type { InventoryBalance, Location } from '@/types'
 
 interface StockTableProps {
   data: InventoryBalance[]
+  depletedData?: InventoryBalance[]
   locations: Pick<Location, 'id' | 'name'>[]
+  currency?: string
 }
 
-export function StockTable({ data, locations }: StockTableProps) {
+export function StockTable({ data, depletedData = [], locations, currency = 'USD' }: StockTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
   const [locationFilter, setLocationFilter] = useState<string>('all')
-  const { t } = useTranslation()
+  const [selectedStock, setSelectedStock] = useState<InventoryBalance | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState('current')
+  const { t, locale } = useTranslation()
 
   const filteredData = locationFilter === 'all'
     ? data
     : data.filter(item => item.location_id === locationFilter)
 
-  const columns: ColumnDef<InventoryBalance>[] = [
+  const filteredDepletedData = locationFilter === 'all'
+    ? depletedData
+    : depletedData.filter(item => item.location_id === locationFilter)
+
+  const handleSkuClick = (item: InventoryBalance) => {
+    setSelectedStock(item)
+    setSheetOpen(true)
+  }
+
+  const columns: ColumnDef<InventoryBalance>[] = useMemo(() => [
     {
       accessorKey: 'product.sku',
       header: t('products.sku'),
       cell: ({ row }) => (
-        <span className="font-mono">{row.original.product?.sku}</span>
+        <button
+          onClick={() => handleSkuClick(row.original)}
+          className="font-mono text-blue-600 hover:underline hover:text-blue-800 text-left"
+          title={t('stock.clickToViewHistory')}
+        >
+          {row.original.product?.sku}
+        </button>
       ),
     },
     {
@@ -84,7 +106,7 @@ export function StockTable({ data, locations }: StockTableProps) {
 
         return (
           <div className="flex items-center gap-2">
-            <span>{formatDate(expiry)}</span>
+            <span>{formatDate(expiry, locale)}</span>
             {daysLeft <= 0 && (
               <Badge variant="destructive">{t('stock.expired')}</Badge>
             )}
@@ -101,15 +123,18 @@ export function StockTable({ data, locations }: StockTableProps) {
       cell: ({ row }) => {
         const qty = row.getValue('qty_on_hand') as number
         const product = row.original.product
-        const isLowStock = product?.reorder_point && qty <= product.reorder_point
+        const isLowStock = product?.reorder_point && qty <= product.reorder_point && qty > 0
 
         return (
           <div className="flex items-center gap-2">
-            <span className={isLowStock ? 'text-orange-600 font-medium' : ''}>
-              {qty.toLocaleString()} {product?.base_uom}
+            <span className={isLowStock ? 'text-orange-600 font-medium' : qty === 0 ? 'text-muted-foreground' : ''}>
+              {qty.toLocaleString()} {t(`uom.${product?.base_uom}`)}
             </span>
             {isLowStock && (
               <Badge variant="secondary">{t('stock.lowStock')}</Badge>
+            )}
+            {qty === 0 && (
+              <Badge variant="outline">{t('stock.stockCleared')}</Badge>
             )}
           </div>
         )
@@ -118,16 +143,17 @@ export function StockTable({ data, locations }: StockTableProps) {
     {
       accessorKey: 'avg_cost',
       header: t('stock.avgCost'),
-      cell: ({ row }) => formatCurrency(row.getValue('avg_cost')),
+      cell: ({ row }) => formatCurrency(row.getValue('avg_cost'), currency, locale),
     },
     {
       accessorKey: 'inventory_value',
       header: t('stock.inventoryValue'),
-      cell: ({ row }) => formatCurrency(row.getValue('inventory_value')),
+      cell: ({ row }) => formatCurrency(row.getValue('inventory_value'), currency, locale),
     },
-  ]
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [t, currency, locale])
 
-  const table = useReactTable({
+  const currentTable = useReactTable({
     data: filteredData,
     columns,
     getCoreRowModel: getCoreRowModel(),
@@ -139,28 +165,20 @@ export function StockTable({ data, locations }: StockTableProps) {
     state: { sorting, globalFilter },
   })
 
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-4 sm:flex-row">
-        <Input
-          placeholder={t('stock.searchStock')}
-          value={globalFilter ?? ''}
-          onChange={(e) => setGlobalFilter(e.target.value)}
-          className="max-w-sm"
-        />
-        <Select value={locationFilter} onValueChange={setLocationFilter}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder={t('stock.allLocations')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t('stock.allLocations')}</SelectItem>
-            {locations.map((loc) => (
-              <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+  const depletedTable = useReactTable({
+    data: filteredDepletedData,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    onSortingChange: setSorting,
+    onGlobalFilterChange: setGlobalFilter,
+    state: { sorting, globalFilter },
+  })
 
+  const renderTable = (table: typeof currentTable, tableData: InventoryBalance[], emptyMessage: string) => (
+    <>
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -190,7 +208,7 @@ export function StockTable({ data, locations }: StockTableProps) {
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-24 text-center">
-                  {t('stock.noStock')}
+                  {emptyMessage}
                 </TableCell>
               </TableRow>
             )}
@@ -200,7 +218,7 @@ export function StockTable({ data, locations }: StockTableProps) {
 
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          {t('table.showing')} {table.getRowModel().rows.length} {t('table.of')} {filteredData.length} {t('table.entries')}
+          {t('table.showing')} {table.getRowModel().rows.length} {t('table.of')} {tableData.length} {t('table.entries')}
         </div>
         <div className="flex items-center space-x-2">
           <Button
@@ -221,6 +239,62 @@ export function StockTable({ data, locations }: StockTableProps) {
           </Button>
         </div>
       </div>
+    </>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-4 sm:flex-row">
+        <Input
+          placeholder={t('stock.searchStock')}
+          value={globalFilter ?? ''}
+          onChange={(e) => setGlobalFilter(e.target.value)}
+          className="max-w-sm"
+        />
+        <Select value={locationFilter} onValueChange={setLocationFilter}>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder={t('stock.allLocations')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('stock.allLocations')}</SelectItem>
+            {locations.map((loc) => (
+              <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList>
+          <TabsTrigger value="current">
+            {t('stock.currentStock')}
+            <Badge variant="secondary" className="ml-2">
+              {filteredData.length}
+            </Badge>
+          </TabsTrigger>
+          <TabsTrigger value="historical">
+            {t('stock.historicalStock')}
+            <Badge variant="outline" className="ml-2">
+              {filteredDepletedData.length}
+            </Badge>
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="current" className="space-y-4 mt-4">
+          {renderTable(currentTable, filteredData, t('stock.noStock'))}
+        </TabsContent>
+
+        <TabsContent value="historical" className="space-y-4 mt-4">
+          {renderTable(depletedTable, filteredDepletedData, t('stock.noStock'))}
+        </TabsContent>
+      </Tabs>
+
+      <StockHistorySheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        stockItem={selectedStock}
+        currency={currency}
+      />
     </div>
   )
 }

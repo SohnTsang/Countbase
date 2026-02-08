@@ -15,6 +15,8 @@ import {
 import { ArrowLeft } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { ShipmentActions } from '@/components/shipment-actions'
+import { DocumentUpload } from '@/components/documents/document-upload'
+import { getTranslator, getLocale } from '@/lib/i18n/server'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -30,6 +32,18 @@ const statusColors: Record<string, string> = {
 export default async function ShipmentDetailPage({ params }: PageProps) {
   const { id } = await params
   const supabase = await createClient()
+  const t = await getTranslator()
+  const locale = await getLocale()
+
+  // Get current user's tenant settings for currency
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: userData } = await supabase
+    .from('users')
+    .select('tenant:tenants(settings)')
+    .eq('id', user?.id)
+    .single()
+
+  const currency = (userData?.tenant as { settings?: { default_currency?: string } })?.settings?.default_currency || 'USD'
 
   const { data: shipment, error } = await supabase
     .from('shipments')
@@ -59,25 +73,31 @@ export default async function ShipmentDetailPage({ params }: PageProps) {
     return sum + line.qty * (line.unit_cost || 0)
   }, 0) || 0
 
+  const statusTranslations: Record<string, string> = {
+    draft: t('common.draft'),
+    confirmed: t('common.confirmed'),
+    completed: t('common.completed'),
+    cancelled: t('common.cancelled'),
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <Link href="/shipments">
-            <Button variant="ghost" size="sm">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-gray-900">{shipment.shipment_number}</h1>
               <Badge className={statusColors[shipment.status] || ''}>
-                {shipment.status.charAt(0).toUpperCase() + shipment.status.slice(1)}
+                {statusTranslations[shipment.status] || shipment.status}
               </Badge>
             </div>
             <p className="text-gray-600">
-              Ship Date: {shipment.ship_date ? formatDate(shipment.ship_date) : 'Not set'}
+              {t('shipments.shipDate')}: {shipment.ship_date ? formatDate(shipment.ship_date, locale) : t('common.notSet')}
             </p>
           </div>
         </div>
@@ -87,24 +107,24 @@ export default async function ShipmentDetailPage({ params }: PageProps) {
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Customer</CardTitle>
+            <CardTitle>{t('shipments.customer')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <div>
-              <span className="text-sm text-gray-500">Name:</span>
+              <span className="text-sm text-gray-500">{t('common.name')}:</span>
               <p className="font-medium">
                 {shipment.customer?.name || shipment.customer_name || '-'}
               </p>
             </div>
             {shipment.customer?.email && (
               <div>
-                <span className="text-sm text-gray-500">Email:</span>
+                <span className="text-sm text-gray-500">{t('common.email')}:</span>
                 <p>{shipment.customer.email}</p>
               </div>
             )}
             {shipment.customer?.phone && (
               <div>
-                <span className="text-sm text-gray-500">Phone:</span>
+                <span className="text-sm text-gray-500">{t('common.phone')}:</span>
                 <p>{shipment.customer.phone}</p>
               </div>
             )}
@@ -113,20 +133,20 @@ export default async function ShipmentDetailPage({ params }: PageProps) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Details</CardTitle>
+            <CardTitle>{t('shipments.shipmentDetails')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <div>
-              <span className="text-sm text-gray-500">Ship From:</span>
+              <span className="text-sm text-gray-500">{t('shipments.shipFromLocation')}:</span>
               <p className="font-medium">{shipment.location?.name}</p>
             </div>
             <div>
-              <span className="text-sm text-gray-500">Created:</span>
-              <p>{formatDate(shipment.created_at)}</p>
+              <span className="text-sm text-gray-500">{t('common.createdAt')}:</span>
+              <p>{formatDate(shipment.created_at, locale)}</p>
             </div>
             {shipment.notes && (
               <div>
-                <span className="text-sm text-gray-500">Notes:</span>
+                <span className="text-sm text-gray-500">{t('common.notes')}:</span>
                 <p>{shipment.notes}</p>
               </div>
             )}
@@ -136,19 +156,19 @@ export default async function ShipmentDetailPage({ params }: PageProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Line Items</CardTitle>
+          <CardTitle>{t('shipments.lineItems')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead className="text-right">Quantity</TableHead>
-                  <TableHead>Lot #</TableHead>
-                  <TableHead>Expiry</TableHead>
-                  <TableHead className="text-right">Unit Cost</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead>{t('products.product')}</TableHead>
+                  <TableHead className="text-center w-[120px]">{t('common.quantity')}</TableHead>
+                  <TableHead className="text-center w-[140px]">{t('stock.lotNumber')}</TableHead>
+                  <TableHead className="text-center w-[120px]">{t('stock.expiryDate')}</TableHead>
+                  <TableHead className="text-right w-[120px]">{t('purchaseOrders.unitCost')}</TableHead>
+                  <TableHead className="text-right w-[120px]">{t('common.total')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -161,18 +181,18 @@ export default async function ShipmentDetailPage({ params }: PageProps) {
                         <p className="text-sm text-gray-600">{line.product?.name}</p>
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">
-                      {line.qty} {line.product?.base_uom}
+                    <TableCell className="text-center">
+                      {line.qty} {t(`uom.${line.product?.base_uom}`)}
                     </TableCell>
-                    <TableCell>{line.lot_number || '-'}</TableCell>
-                    <TableCell>
-                      {line.expiry_date ? formatDate(line.expiry_date) : '-'}
+                    <TableCell className="text-center">{line.lot_number || '-'}</TableCell>
+                    <TableCell className="text-center">
+                      {line.expiry_date ? formatDate(line.expiry_date, locale) : '-'}
                     </TableCell>
                     <TableCell className="text-right">
-                      {line.unit_cost ? formatCurrency(line.unit_cost) : '-'}
+                      {line.unit_cost ? formatCurrency(line.unit_cost, currency, locale) : '-'}
                     </TableCell>
                     <TableCell className="text-right font-medium">
-                      {line.unit_cost ? formatCurrency(line.qty * line.unit_cost) : '-'}
+                      {line.unit_cost ? formatCurrency(line.qty * line.unit_cost, currency, locale) : '-'}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -183,12 +203,18 @@ export default async function ShipmentDetailPage({ params }: PageProps) {
           {shipment.status === 'completed' && shipmentTotal > 0 && (
             <div className="flex justify-end mt-4">
               <div className="text-lg font-bold">
-                Total Value: {formatCurrency(shipmentTotal)}
+                {t('common.total')}: {formatCurrency(shipmentTotal, currency, locale)}
               </div>
             </div>
           )}
         </CardContent>
       </Card>
+
+      <DocumentUpload
+        entityType="shipment"
+        entityId={shipment.id}
+        readOnly={shipment.status === 'cancelled'}
+      />
     </div>
   )
 }

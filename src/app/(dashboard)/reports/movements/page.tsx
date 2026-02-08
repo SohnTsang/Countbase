@@ -1,53 +1,202 @@
 import { createClient } from '@/lib/supabase/server'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { formatDate, formatCurrency } from '@/lib/utils'
 import { MovementsExport } from './movements-export'
+import { MovementsClient, type MovementData } from './movements-client'
 import { getTranslator } from '@/lib/i18n/server'
+
+async function enrichMovementsWithDocuments(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  movements: any[],
+  supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<MovementData[]> {
+  // Get unique reference IDs by type
+  const refsByType = new Map<string, Set<string>>()
+  movements.forEach((m) => {
+    if (m.reference_type && m.reference_id) {
+      if (!refsByType.has(m.reference_type)) {
+        refsByType.set(m.reference_type, new Set())
+      }
+      refsByType.get(m.reference_type)!.add(m.reference_id)
+    }
+  })
+
+  // Fetch document numbers for each type
+  const docMaps = new Map<string, Map<string, { number: string; from_location?: string; to_location?: string }>>()
+
+  const fetchPromises: Promise<void>[] = []
+
+  if (refsByType.has('po')) {
+    const ids = Array.from(refsByType.get('po')!)
+    fetchPromises.push(
+      (async () => {
+        const { data } = await supabase
+          .from('purchase_orders')
+          .select('id, po_number')
+          .in('id', ids)
+        const map = new Map<string, { number: string }>()
+        data?.forEach((d) => map.set(d.id, { number: d.po_number }))
+        docMaps.set('po', map)
+      })()
+    )
+  }
+
+  if (refsByType.has('shipment')) {
+    const ids = Array.from(refsByType.get('shipment')!)
+    fetchPromises.push(
+      (async () => {
+        const { data } = await supabase
+          .from('shipments')
+          .select('id, shipment_number')
+          .in('id', ids)
+        const map = new Map<string, { number: string }>()
+        data?.forEach((d) => map.set(d.id, { number: d.shipment_number }))
+        docMaps.set('shipment', map)
+      })()
+    )
+  }
+
+  if (refsByType.has('transfer')) {
+    const ids = Array.from(refsByType.get('transfer')!)
+    fetchPromises.push(
+      (async () => {
+        const { data } = await supabase
+          .from('transfers')
+          .select('id, transfer_number, from_location:locations!transfers_from_location_id_fkey(name), to_location:locations!transfers_to_location_id_fkey(name)')
+          .in('id', ids)
+        const map = new Map<string, { number: string; from_location?: string; to_location?: string }>()
+        data?.forEach((d) => {
+          map.set(d.id, {
+            number: d.transfer_number,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            from_location: (d.from_location as any)?.name,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            to_location: (d.to_location as any)?.name,
+          })
+        })
+        docMaps.set('transfer', map)
+      })()
+    )
+  }
+
+  if (refsByType.has('adjustment')) {
+    const ids = Array.from(refsByType.get('adjustment')!)
+    fetchPromises.push(
+      (async () => {
+        const { data } = await supabase
+          .from('adjustments')
+          .select('id, adjustment_number')
+          .in('id', ids)
+        const map = new Map<string, { number: string }>()
+        data?.forEach((d) => map.set(d.id, { number: d.adjustment_number }))
+        docMaps.set('adjustment', map)
+      })()
+    )
+  }
+
+  if (refsByType.has('cycle_count')) {
+    const ids = Array.from(refsByType.get('cycle_count')!)
+    fetchPromises.push(
+      (async () => {
+        const { data } = await supabase
+          .from('cycle_counts')
+          .select('id, count_number')
+          .in('id', ids)
+        const map = new Map<string, { number: string }>()
+        data?.forEach((d) => map.set(d.id, { number: d.count_number }))
+        docMaps.set('cycle_count', map)
+      })()
+    )
+  }
+
+  if (refsByType.has('return')) {
+    const ids = Array.from(refsByType.get('return')!)
+    fetchPromises.push(
+      (async () => {
+        const { data } = await supabase
+          .from('returns')
+          .select('id, return_number')
+          .in('id', ids)
+        const map = new Map<string, { number: string }>()
+        data?.forEach((d) => map.set(d.id, { number: d.return_number }))
+        docMaps.set('return', map)
+      })()
+    )
+  }
+
+  await Promise.all(fetchPromises)
+
+  // Enrich movements with document numbers and locations
+  return movements.map((m) => {
+    const docInfo = m.reference_type && m.reference_id
+      ? docMaps.get(m.reference_type)?.get(m.reference_id)
+      : null
+
+    return {
+      ...m,
+      document_number: docInfo?.number || null,
+      from_location_name: docInfo?.from_location || null,
+      to_location_name: docInfo?.to_location || null,
+    }
+  })
+}
 
 export default async function MovementsReportPage() {
   const supabase = await createClient()
   const t = await getTranslator()
 
-  const MOVEMENT_LABELS: Record<string, string> = {
-    receive: t('movementTypes.receive'),
-    ship: t('movementTypes.ship'),
-    transfer_out: t('movementTypes.transfer_out'),
-    transfer_in: t('movementTypes.transfer_in'),
-    adjustment: t('movementTypes.adjustment'),
-    count_variance: t('movementTypes.count_variance'),
-    return_in: t('movementTypes.return_in'),
-    return_out: t('movementTypes.return_out'),
-    void: t('movementTypes.void'),
-  }
-
   const { data: movements } = await supabase
     .from('stock_movements')
     .select(`
-      *,
+      id,
+      created_at,
+      movement_type,
+      qty,
+      unit_cost,
+      lot_number,
+      expiry_date,
+      reason,
+      notes,
+      reference_type,
+      reference_id,
       product:products(id, sku, name, base_uom),
       location:locations(id, name)
     `)
     .order('created_at', { ascending: false })
     .limit(500)
 
-  // Flatten data for export
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const exportData = movements?.map((m: any) => ({
+  const { data: locations } = await supabase
+    .from('locations')
+    .select('id, name')
+    .eq('active', true)
+    .order('name')
+
+  // Enrich movements with document numbers
+  const enrichedMovements = movements
+    ? await enrichMovementsWithDocuments(movements, supabase)
+    : []
+
+  // Prepare export data with all fields
+  const exportData = enrichedMovements.map((m) => ({
     date: m.created_at,
     type: m.movement_type,
     sku: m.product?.sku || '',
     product: m.product?.name || '',
     location: m.location?.name || '',
+    from_location: m.from_location_name || '',
+    to_location: m.to_location_name || '',
     qty: m.qty,
     uom: m.product?.base_uom || '',
     unit_cost: m.unit_cost || 0,
-    reference: m.reference_type ? `${m.reference_type}/${m.reference_id?.slice(0, 8) || ''}` : '',
-  })) || []
+    extended_cost: Math.abs(m.qty * (m.unit_cost || 0)),
+    lot_number: m.lot_number || '',
+    expiry_date: m.expiry_date || '',
+    reason: m.reason || '',
+    notes: m.notes || '',
+    document_number: m.document_number || '',
+    reference: m.reference_type ? `${m.reference_type}/${m.reference_id}` : '',
+  }))
 
   return (
     <div className="space-y-6">
@@ -66,60 +215,10 @@ export default async function MovementsReportPage() {
         <MovementsExport data={exportData} />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('reports.movementHistory')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {movements && movements.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('common.date')}</TableHead>
-                  <TableHead>{t('locations.type')}</TableHead>
-                  <TableHead>{t('products.sku')}</TableHead>
-                  <TableHead>{t('products.product')}</TableHead>
-                  <TableHead>{t('stock.location')}</TableHead>
-                  <TableHead className="text-right">{t('common.quantity')}</TableHead>
-                  <TableHead className="text-right">{t('reports.cost')}</TableHead>
-                  <TableHead>{t('reports.reference')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              {movements.map((m: any) => (
-                  <TableRow key={m.id}>
-                    <TableCell>{formatDate(m.created_at)}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {MOVEMENT_LABELS[m.movement_type] || m.movement_type}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono">{m.product?.sku}</TableCell>
-                    <TableCell>{m.product?.name}</TableCell>
-                    <TableCell>{m.location?.name}</TableCell>
-                    <TableCell className="text-right">
-                      <span className={m.qty > 0 ? 'text-green-600' : 'text-red-600'}>
-                        {m.qty > 0 ? '+' : ''}{m.qty} {m.product?.base_uom}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {m.unit_cost ? formatCurrency(m.unit_cost) : '-'}
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {m.reference_type && m.reference_id
-                        ? `${m.reference_type}/${m.reference_id.slice(0, 8)}`
-                        : '-'}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <p className="text-center text-gray-500 py-8">{t('reports.noMovements')}</p>
-          )}
-        </CardContent>
-      </Card>
+      <MovementsClient
+        data={enrichedMovements}
+        locations={locations || []}
+      />
     </div>
   )
 }

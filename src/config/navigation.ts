@@ -152,13 +152,6 @@ export const navigationGroups: NavGroup[] = [
         icon: Users,
         roles: ['admin', 'manager']
       },
-    ],
-  },
-  {
-    name: null, // Reports - standalone
-    nameKey: null,
-    defaultOpen: true,
-    items: [
       {
         name: 'Reports',
         nameKey: 'nav.reports',

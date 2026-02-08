@@ -1,11 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { customerSchema, type CustomerFormData } from '@/lib/validations/customer'
 import { createAuditLog } from '@/lib/audit'
 import { computeChanges } from '@/lib/audit-utils'
+import { deleteEntityDocuments } from '@/lib/actions/documents'
 
 export async function createCustomer(formData: CustomerFormData) {
   const supabase = await createClient()
@@ -57,7 +57,7 @@ export async function createCustomer(formData: CustomerFormData) {
   })
 
   revalidatePath('/customers')
-  redirect('/customers')
+  return { success: true, id: newCustomer.id }
 }
 
 export async function updateCustomer(id: string, formData: CustomerFormData) {
@@ -106,7 +106,7 @@ export async function updateCustomer(id: string, formData: CustomerFormData) {
   })
 
   revalidatePath('/customers')
-  redirect('/customers')
+  return { success: true }
 }
 
 export async function deleteCustomer(id: string) {
@@ -128,6 +128,8 @@ export async function deleteCustomer(id: string) {
   if (shipments && shipments.length > 0) {
     return { error: 'Cannot delete customer with existing shipments. Deactivate instead.' }
   }
+
+  await deleteEntityDocuments('customer', id)
 
   const { error } = await supabase.from('customers').delete().eq('id', id)
   if (error) return { error: error.message }

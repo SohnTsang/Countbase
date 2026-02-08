@@ -10,12 +10,34 @@ export type ReservationStatus = 'active' | 'released' | 'consumed'
 export interface Tenant {
   id: string
   name: string
+  max_users: number
   settings: {
     reservation_expiry_hours: number
     require_adjustment_approval: boolean
     default_currency: string
   }
   created_at: string
+}
+
+export interface UserInvitation {
+  id: string
+  tenant_id: string
+  email: string
+  role: UserRole
+  token: string
+  expires_at: string
+  invited_by: string | null
+  invited_by_name: string | null
+  accepted_at: string | null
+  created_at: string
+  // Joined
+  tenant?: Tenant
+}
+
+export interface TenantUserStats {
+  current_users: number
+  pending_invitations: number
+  max_users: number
 }
 
 export interface User {
@@ -34,6 +56,8 @@ export interface Category {
   tenant_id: string
   name: string
   parent_id: string | null
+  is_parent: boolean
+  active: boolean
   created_at: string
 }
 
@@ -66,6 +90,8 @@ export interface Location {
   name: string
   type: LocationType
   parent_id: string | null
+  is_parent: boolean
+  address: string | null
   active: boolean
   created_at: string
 }
@@ -332,7 +358,7 @@ export interface ReturnLine {
 }
 
 // Audit Log Types
-export type AuditAction = 'create' | 'update' | 'delete' | 'login' | 'logout' | 'confirm' | 'cancel' | 'receive' | 'ship' | 'transfer' | 'adjust' | 'count' | 'return' | 'approve'
+export type AuditAction = 'create' | 'update' | 'delete' | 'login' | 'logout' | 'confirm' | 'cancel' | 'receive' | 'ship' | 'transfer' | 'adjust' | 'count' | 'return' | 'approve' | 'upload'
 
 export type AuditResourceType =
   | 'user'
@@ -349,6 +375,7 @@ export type AuditResourceType =
   | 'return'
   | 'settings'
   | 'tenant'
+  | 'document'
 
 export interface AuditLog {
   id: string
@@ -429,4 +456,35 @@ export interface ErrorStats {
     date: string
     count: number
   }[]
+}
+
+// Document Types
+export type DocumentEntityType =
+  | 'product'
+  | 'category'
+  | 'location'
+  | 'supplier'
+  | 'customer'
+  | 'purchase_order'
+  | 'shipment'
+  | 'transfer'
+  | 'adjustment'
+  | 'cycle_count'
+  | 'return'
+
+export interface Document {
+  id: string
+  tenant_id: string
+  entity_type: DocumentEntityType
+  entity_id: string
+  file_name: string
+  file_size: number
+  mime_type: string
+  storage_path: string
+  version: number
+  notes: string | null
+  uploaded_by: string | null
+  uploaded_by_name: string | null
+  created_at: string
+  updated_at: string
 }

@@ -3,8 +3,10 @@
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
-import { CheckCircle, XCircle } from 'lucide-react'
+import { CheckCircle, Pencil, XCircle } from 'lucide-react'
+import Link from 'next/link'
 import { postAdjustment, cancelAdjustment } from '@/lib/actions/adjustments'
+import { useTranslation } from '@/lib/i18n'
 import type { Adjustment } from '@/types'
 
 interface AdjustmentActionsProps {
@@ -13,25 +15,26 @@ interface AdjustmentActionsProps {
 
 export function AdjustmentActions({ adjustment }: AdjustmentActionsProps) {
   const router = useRouter()
+  const { t } = useTranslation()
 
   const handlePost = async () => {
-    if (!confirm('Post this adjustment? Inventory will be updated.')) return
+    if (!confirm(t('adjustments.confirmPost'))) return
     const result = await postAdjustment(adjustment.id)
     if (result.error) {
       toast.error(result.error)
     } else {
-      toast.success('Adjustment posted')
+      toast.success(t('toast.adjustmentPosted'))
       router.refresh()
     }
   }
 
   const handleCancel = async () => {
-    if (!confirm('Cancel this adjustment?')) return
+    if (!confirm(t('dialog.cancelMessage'))) return
     const result = await cancelAdjustment(adjustment.id)
     if (result.error) {
       toast.error(result.error)
     } else {
-      toast.success('Adjustment cancelled')
+      toast.success(t('toast.adjustmentCancelled'))
       router.refresh()
     }
   }
@@ -39,13 +42,19 @@ export function AdjustmentActions({ adjustment }: AdjustmentActionsProps) {
   if (adjustment.status === 'draft') {
     return (
       <div className="flex gap-2">
+        <Link href={`/adjustments/${adjustment.id}/edit`}>
+          <Button variant="outline">
+            <Pencil className="mr-2 h-4 w-4" />
+            {t('common.edit')}
+          </Button>
+        </Link>
         <Button onClick={handlePost}>
           <CheckCircle className="mr-2 h-4 w-4" />
-          Post Adjustment
+          {t('adjustments.post')}
         </Button>
         <Button variant="destructive" onClick={handleCancel}>
           <XCircle className="mr-2 h-4 w-4" />
-          Cancel
+          {t('common.cancel')}
         </Button>
       </div>
     )

@@ -26,23 +26,9 @@ import { createOrganizationSchema, type OrganizationFormData } from '@/lib/valid
 import { updateOrganization } from '@/lib/actions/settings'
 import { useTranslation } from '@/lib/i18n'
 
-const CURRENCIES = [
-  { code: 'USD', name: 'US Dollar' },
-  { code: 'EUR', name: 'Euro' },
-  { code: 'GBP', name: 'British Pound' },
-  { code: 'JPY', name: 'Japanese Yen' },
-  { code: 'CNY', name: 'Chinese Yuan' },
-  { code: 'INR', name: 'Indian Rupee' },
-  { code: 'AUD', name: 'Australian Dollar' },
-  { code: 'CAD', name: 'Canadian Dollar' },
-  { code: 'CHF', name: 'Swiss Franc' },
-  { code: 'SGD', name: 'Singapore Dollar' },
-  { code: 'PHP', name: 'Philippine Peso' },
-  { code: 'MYR', name: 'Malaysian Ringgit' },
-  { code: 'IDR', name: 'Indonesian Rupiah' },
-  { code: 'THB', name: 'Thai Baht' },
-  { code: 'VND', name: 'Vietnamese Dong' },
-]
+const CURRENCY_CODES = [
+  'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'INR', 'AUD', 'CAD', 'CHF', 'SGD', 'PHP', 'MYR', 'IDR', 'THB', 'VND'
+] as const
 
 interface OrganizationFormProps {
   currentName: string
@@ -144,9 +130,9 @@ export function OrganizationForm({
                 <SelectValue placeholder={t('settings.selectCurrency')} />
               </SelectTrigger>
               <SelectContent>
-                {CURRENCIES.map((currency) => (
-                  <SelectItem key={currency.code} value={currency.code}>
-                    {currency.code} - {currency.name}
+                {CURRENCY_CODES.map((code) => (
+                  <SelectItem key={code} value={code}>
+                    {code} - {t(`currencies.${code}`)}
                   </SelectItem>
                 ))}
               </SelectContent>

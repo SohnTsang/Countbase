@@ -1,11 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { productSchema, type ProductFormData } from '@/lib/validations/product'
 import { createAuditLog } from '@/lib/audit'
 import { computeChanges } from '@/lib/audit-utils'
+import { deleteEntityDocuments } from '@/lib/actions/documents'
 
 export async function getProducts() {
   const supabase = await createClient()
@@ -80,7 +80,7 @@ export async function createProduct(formData: ProductFormData) {
   })
 
   revalidatePath('/products')
-  redirect('/products')
+  return { success: true, id: newProduct.id }
 }
 
 export async function updateProduct(id: string, formData: ProductFormData) {
@@ -133,7 +133,7 @@ export async function updateProduct(id: string, formData: ProductFormData) {
   })
 
   revalidatePath('/products')
-  redirect('/products')
+  return { success: true }
 }
 
 export async function deleteProduct(id: string) {
@@ -167,6 +167,8 @@ export async function deleteProduct(id: string) {
   if (poLines && poLines.length > 0) {
     return { error: 'Cannot delete product used in purchase orders. Deactivate it instead.' }
   }
+
+  await deleteEntityDocuments('product', id)
 
   const { error } = await supabase
     .from('products')

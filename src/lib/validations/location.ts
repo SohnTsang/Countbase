@@ -6,6 +6,8 @@ export const createLocationSchema = (t: TranslationFn) => z.object({
   name: z.string().min(1, t('validation.nameRequired')).max(100),
   type: z.enum(['warehouse', 'store', 'outlet']),
   parent_id: z.string().uuid().nullable().optional(),
+  is_parent: z.boolean().default(false),
+  address: z.string().max(500).nullable().optional(),
   active: z.boolean().default(true),
 })
 

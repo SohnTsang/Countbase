@@ -51,7 +51,7 @@ const statusColors: Record<string, string> = {
 export function PurchaseOrdersTable({ data }: PurchaseOrdersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
 
   const statusLabels: Record<string, string> = {
     draft: t('common.draft'),
@@ -87,14 +87,14 @@ export function PurchaseOrdersTable({ data }: PurchaseOrdersTableProps) {
     {
       accessorKey: 'order_date',
       header: t('purchaseOrders.orderDate'),
-      cell: ({ row }) => formatDate(row.getValue('order_date')),
+      cell: ({ row }) => formatDate(row.getValue('order_date'), locale),
     },
     {
       accessorKey: 'expected_date',
       header: t('purchaseOrders.expectedDate'),
       cell: ({ row }) => {
         const date = row.getValue('expected_date') as string | null
-        return date ? formatDate(date) : '-'
+        return date ? formatDate(date, locale) : '-'
       },
     },
     {

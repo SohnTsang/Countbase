@@ -20,15 +20,9 @@ export default async function EditLocationPage({ params }: EditLocationPageProps
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Edit Location</h1>
-        <p className="text-gray-600">Update location details</p>
-      </div>
-      <LocationForm
-        location={locationResult.data}
-        locations={locationsResult.data || []}
-      />
-    </div>
+    <LocationForm
+      location={locationResult.data}
+      locations={locationsResult.data || []}
+    />
   )
 }

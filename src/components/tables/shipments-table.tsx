@@ -50,7 +50,7 @@ const statusColors: Record<string, string> = {
 export function ShipmentsTable({ data }: ShipmentsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
 
   const statusLabels: Record<string, string> = {
     draft: t('common.draft'),
@@ -90,7 +90,7 @@ export function ShipmentsTable({ data }: ShipmentsTableProps) {
       header: t('shipments.shipDate'),
       cell: ({ row }) => {
         const date = row.getValue('ship_date') as string | null
-        return date ? formatDate(date) : '-'
+        return date ? formatDate(date, locale) : '-'
       },
     },
     {

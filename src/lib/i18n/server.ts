@@ -22,7 +22,17 @@ export async function getServerMessages() {
 
 export async function getTranslator() {
   const messages = await getServerMessages()
-  return (key: string): string => getNestedValue(messages, key)
+  return (key: string, params?: Record<string, string | number>): string => {
+    let translation = getNestedValue(messages, key)
+
+    if (params) {
+      Object.entries(params).forEach(([paramKey, value]) => {
+        translation = translation.replace(`{${paramKey}}`, String(value))
+      })
+    }
+
+    return translation
+  }
 }
 
 export { loadMessages as getMessages }

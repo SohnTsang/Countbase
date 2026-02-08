@@ -35,8 +35,13 @@ import { deleteLocation } from '@/lib/actions/locations'
 import { useTranslation } from '@/lib/i18n'
 import type { Location } from '@/types'
 
+interface LocationWithParent extends Location {
+  parent?: { id: string; name: string } | null
+  isChild?: boolean
+}
+
 interface LocationsTableProps {
-  data: Location[]
+  data: LocationWithParent[]
 }
 
 export function LocationsTable({ data }: LocationsTableProps) {
@@ -50,10 +55,29 @@ export function LocationsTable({ data }: LocationsTableProps) {
     outlet: t('locations.outlet'),
   }
 
-  const columns: ColumnDef<Location>[] = [
+  const columns: ColumnDef<LocationWithParent>[] = [
     {
       accessorKey: 'name',
       header: t('locations.locationName'),
+      cell: ({ row }) => {
+        const isChild = row.original.isChild
+        const parent = row.original.parent
+        return (
+          <div className="flex items-center gap-2">
+            {isChild && (
+              <span className="text-gray-400 ml-4">└</span>
+            )}
+            <span className={isChild ? 'text-gray-700' : 'font-medium'}>
+              {row.getValue('name')}
+            </span>
+            {parent && (
+              <span className="text-xs text-gray-400">
+                ({parent.name})
+              </span>
+            )}
+          </div>
+        )
+      },
     },
     {
       accessorKey: 'type',

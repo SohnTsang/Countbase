@@ -20,13 +20,5 @@ export default async function EditSupplierPage({ params }: EditSupplierPageProps
     notFound()
   }
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Edit Supplier</h1>
-        <p className="text-gray-600">Update supplier information</p>
-      </div>
-      <SupplierForm supplier={supplier} />
-    </div>
-  )
+  return <SupplierForm supplier={supplier} />
 }

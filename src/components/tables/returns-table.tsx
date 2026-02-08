@@ -54,7 +54,7 @@ const typeColors: Record<string, string> = {
 export function ReturnsTable({ data }: ReturnsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
 
   const statusLabels: Record<string, string> = {
     draft: t('common.draft'),
@@ -103,6 +103,16 @@ export function ReturnsTable({ data }: ReturnsTableProps) {
       cell: ({ row }) => row.original.location?.name,
     },
     {
+      id: 'totalQty',
+      header: t('returns.totalQty'),
+      cell: ({ row }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const lines = (row.original as any).lines as { qty: number }[] | undefined
+        const totalQty = lines?.reduce((sum, line) => sum + (line.qty || 0), 0) || 0
+        return totalQty
+      },
+    },
+    {
       accessorKey: 'reason',
       header: t('returns.reason'),
       cell: ({ row }) => row.getValue('reason') || '-',
@@ -110,7 +120,7 @@ export function ReturnsTable({ data }: ReturnsTableProps) {
     {
       accessorKey: 'created_at',
       header: t('common.createdAt'),
-      cell: ({ row }) => formatDate(row.getValue('created_at')),
+      cell: ({ row }) => formatDate(row.getValue('created_at'), locale),
     },
     {
       accessorKey: 'status',

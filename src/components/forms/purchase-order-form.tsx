@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter } from 'next/navigation'
@@ -27,20 +27,34 @@ import {
 import { Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createPurchaseOrderSchema, type PurchaseOrderFormData } from '@/lib/validations/purchase-order'
-import { createPurchaseOrder } from '@/lib/actions/purchase-orders'
+import { createPurchaseOrder, updatePurchaseOrder } from '@/lib/actions/purchase-orders'
 import { formatCurrency } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { DocumentUpload, type DocumentUploadHandle } from '@/components/documents/document-upload'
 import type { Supplier, Location, Product } from '@/types'
 
 interface PurchaseOrderFormProps {
   suppliers: Supplier[]
   locations: Location[]
   products: Product[]
+  currency?: string
+  locale?: string
+  initialData?: {
+    id: string
+    supplier_id: string
+    location_id: string
+    order_date: string
+    expected_date: string | null
+    notes: string | null
+    lines: { product_id: string; qty_ordered: number; unit_cost: number }[]
+  }
 }
 
-export function PurchaseOrderForm({ suppliers, locations, products }: PurchaseOrderFormProps) {
+export function PurchaseOrderForm({ suppliers, locations, products, currency = 'USD', locale = 'en', initialData }: PurchaseOrderFormProps) {
   const router = useRouter()
   const { t } = useTranslation()
+  const docUploadRef = useRef<DocumentUploadHandle>(null)
+  const isEdit = !!initialData
 
   const schema = useMemo(() => createPurchaseOrderSchema(t), [t])
 
@@ -54,14 +68,27 @@ export function PurchaseOrderForm({ suppliers, locations, products }: PurchaseOr
   } = useForm<PurchaseOrderFormData>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(schema) as any,
-    defaultValues: {
-      supplier_id: '',
-      location_id: '',
-      order_date: new Date().toISOString().split('T')[0],
-      expected_date: '',
-      notes: '',
-      lines: [{ product_id: '', qty_ordered: 1, unit_cost: 0 }],
-    },
+    defaultValues: initialData
+      ? {
+          supplier_id: initialData.supplier_id,
+          location_id: initialData.location_id,
+          order_date: initialData.order_date,
+          expected_date: initialData.expected_date || '',
+          notes: initialData.notes || '',
+          lines: initialData.lines.map((l) => ({
+            product_id: l.product_id,
+            qty_ordered: l.qty_ordered,
+            unit_cost: l.unit_cost,
+          })),
+        }
+      : {
+          supplier_id: '',
+          location_id: '',
+          order_date: new Date().toISOString().split('T')[0],
+          expected_date: '',
+          notes: '',
+          lines: [{ product_id: '', qty_ordered: 1, unit_cost: 0 }],
+        },
   })
 
   const { fields, append, remove } = useFieldArray({
@@ -84,18 +111,27 @@ export function PurchaseOrderForm({ suppliers, locations, products }: PurchaseOr
 
   const onSubmit = async (data: PurchaseOrderFormData) => {
     try {
-      const result = await createPurchaseOrder(data)
+      const result = isEdit
+        ? await updatePurchaseOrder(initialData!.id, data)
+        : await createPurchaseOrder(data)
 
-      if (result?.error) {
-        if (typeof result.error === 'object' && '_form' in result.error) {
-          toast.error((result.error as { _form: string[] })._form?.[0])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err = (result as any)?.error
+      if (err) {
+        if (typeof err === 'object' && '_form' in err) {
+          toast.error((err as { _form: string[] })._form?.[0])
         } else {
           toast.error(t('toast.validationError'))
         }
         return
       }
-      toast.success(t('toast.purchaseOrderCreated'))
-    } catch (error) {
+      toast.success(isEdit ? t('toast.poUpdated') : t('toast.purchaseOrderCreated'))
+      if (!isEdit && (result as any)?.id) {
+        await docUploadRef.current?.uploadQueuedFiles((result as any).id)
+      }
+      router.replace(isEdit ? `/purchase-orders/${initialData!.id}` : '/purchase-orders')
+      router.refresh()
+    } catch {
       toast.error(t('toast.errorOccurred'))
     }
   }
@@ -104,7 +140,7 @@ export function PurchaseOrderForm({ suppliers, locations, products }: PurchaseOr
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>{t('purchaseOrders.newOrder')}</CardTitle>
+          <CardTitle>{isEdit ? t('purchaseOrders.editPO') : t('purchaseOrders.newOrder')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -221,7 +257,19 @@ export function PurchaseOrderForm({ suppliers, locations, products }: PurchaseOr
                     <TableCell>
                       <Select
                         value={watch(`lines.${index}.product_id`)}
-                        onValueChange={(value) => setValue(`lines.${index}.product_id`, value)}
+                        onValueChange={(value) => {
+                          setValue(`lines.${index}.product_id`, value)
+                          // Prefill unit_cost and qty_ordered from product settings
+                          const selectedProduct = products.find(p => p.id === value)
+                          if (selectedProduct) {
+                            if (selectedProduct.current_cost) {
+                              setValue(`lines.${index}.unit_cost`, selectedProduct.current_cost)
+                            }
+                            if (selectedProduct.reorder_qty) {
+                              setValue(`lines.${index}.qty_ordered`, selectedProduct.reorder_qty)
+                            }
+                          }
+                        }}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder={t('common.selectOption')} />
@@ -259,7 +307,7 @@ export function PurchaseOrderForm({ suppliers, locations, products }: PurchaseOr
                       />
                     </TableCell>
                     <TableCell className="text-right font-medium">
-                      {formatCurrency(calculateLineTotal(index))}
+                      {formatCurrency(calculateLineTotal(index), currency, locale)}
                     </TableCell>
                     <TableCell>
                       {fields.length > 1 && (
@@ -282,17 +330,19 @@ export function PurchaseOrderForm({ suppliers, locations, products }: PurchaseOr
 
           <div className="flex justify-end mt-4">
             <div className="text-lg font-bold">
-              {t('purchaseOrders.orderTotal')}: {formatCurrency(calculateOrderTotal())}
+              {t('purchaseOrders.orderTotal')}: {formatCurrency(calculateOrderTotal(), currency, locale)}
             </div>
           </div>
         </CardContent>
       </Card>
 
+      {!isEdit && <DocumentUpload ref={docUploadRef} entityType="purchase_order" entityId={null} />}
+
       <div className="flex gap-4">
         <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? t('common.loading') : t('purchaseOrders.createOrder')}
+          {isSubmitting ? t('common.loading') : (isEdit ? t('purchaseOrders.updateOrder') : t('purchaseOrders.createOrder'))}
         </Button>
-        <Button type="button" variant="outline" onClick={() => router.push('/purchase-orders')}>
+        <Button type="button" variant="outline" onClick={() => router.push(isEdit ? `/purchase-orders/${initialData!.id}` : '/purchase-orders')}>
           {t('common.cancel')}
         </Button>
       </div>

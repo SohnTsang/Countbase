@@ -49,7 +49,7 @@ const statusColors: Record<string, string> = {
 export function CycleCountsTable({ data }: CycleCountsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
 
   const statusLabels: Record<string, string> = {
     draft: t('common.draft'),
@@ -78,7 +78,7 @@ export function CycleCountsTable({ data }: CycleCountsTableProps) {
     {
       accessorKey: 'count_date',
       header: t('cycleCounts.countDate'),
-      cell: ({ row }) => formatDate(row.getValue('count_date')),
+      cell: ({ row }) => formatDate(row.getValue('count_date'), locale),
     },
     {
       id: 'lines_count',

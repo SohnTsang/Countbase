@@ -15,6 +15,8 @@ import {
 import { ArrowLeft } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { PurchaseOrderActions } from '@/components/purchase-order-actions'
+import { DocumentUpload } from '@/components/documents/document-upload'
+import { getTranslator, getLocale } from '@/lib/i18n/server'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -31,6 +33,18 @@ const statusColors: Record<string, string> = {
 export default async function PurchaseOrderDetailPage({ params }: PageProps) {
   const { id } = await params
   const supabase = await createClient()
+  const t = await getTranslator()
+  const locale = await getLocale()
+
+  // Get current user's tenant settings for currency
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: userData } = await supabase
+    .from('users')
+    .select('tenant:tenants(settings)')
+    .eq('id', user?.id)
+    .single()
+
+  const currency = (userData?.tenant as { settings?: { default_currency?: string } })?.settings?.default_currency || 'USD'
 
   const { data: po, error } = await supabase
     .from('purchase_orders')
@@ -69,19 +83,18 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <Link href="/purchase-orders">
-            <Button variant="ghost" size="sm">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-gray-900">{po.po_number}</h1>
               <Badge className={statusColors[po.status] || ''}>
-                {po.status.charAt(0).toUpperCase() + po.status.slice(1)}
+                {t(`common.${po.status}`)}
               </Badge>
             </div>
-            <p className="text-gray-600">Order Date: {formatDate(po.order_date)}</p>
+            <p className="text-gray-600">{t('purchaseOrders.orderDate')}: {formatDate(po.order_date, locale)}</p>
           </div>
         </div>
         <PurchaseOrderActions po={po} />
@@ -90,11 +103,11 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Supplier</CardTitle>
+            <CardTitle>{t('purchaseOrders.supplier')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <div>
-              <span className="text-sm text-gray-500">Name:</span>
+              <span className="text-sm text-gray-500">{t('common.name')}:</span>
               <p className="font-medium">
                 {po.supplier?.code && `${po.supplier.code} - `}
                 {po.supplier?.name}
@@ -102,13 +115,13 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
             </div>
             {po.supplier?.email && (
               <div>
-                <span className="text-sm text-gray-500">Email:</span>
+                <span className="text-sm text-gray-500">{t('common.email')}:</span>
                 <p>{po.supplier.email}</p>
               </div>
             )}
             {po.supplier?.phone && (
               <div>
-                <span className="text-sm text-gray-500">Phone:</span>
+                <span className="text-sm text-gray-500">{t('common.phone')}:</span>
                 <p>{po.supplier.phone}</p>
               </div>
             )}
@@ -117,20 +130,20 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Details</CardTitle>
+            <CardTitle>{t('purchaseOrders.details')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <div>
-              <span className="text-sm text-gray-500">Receive To:</span>
+              <span className="text-sm text-gray-500">{t('purchaseOrders.receiveToLocation')}:</span>
               <p className="font-medium">{po.location?.name}</p>
             </div>
             <div>
-              <span className="text-sm text-gray-500">Expected Date:</span>
-              <p>{po.expected_date ? formatDate(po.expected_date) : '-'}</p>
+              <span className="text-sm text-gray-500">{t('purchaseOrders.expectedDate')}:</span>
+              <p>{po.expected_date ? formatDate(po.expected_date, locale) : '-'}</p>
             </div>
             {po.notes && (
               <div>
-                <span className="text-sm text-gray-500">Notes:</span>
+                <span className="text-sm text-gray-500">{t('common.notes')}:</span>
                 <p>{po.notes}</p>
               </div>
             )}
@@ -140,19 +153,19 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Line Items</CardTitle>
+          <CardTitle>{t('purchaseOrders.lineItems')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead className="text-right">Ordered</TableHead>
-                  <TableHead className="text-right">Received</TableHead>
-                  <TableHead className="text-right">Remaining</TableHead>
-                  <TableHead className="text-right">Unit Cost</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead>{t('products.product')}</TableHead>
+                  <TableHead className="text-right">{t('purchaseOrders.ordered')}</TableHead>
+                  <TableHead className="text-right">{t('purchaseOrders.received')}</TableHead>
+                  <TableHead className="text-right">{t('purchaseOrders.remaining')}</TableHead>
+                  <TableHead className="text-right">{t('purchaseOrders.unitCost')}</TableHead>
+                  <TableHead className="text-right">{t('common.total')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -168,21 +181,21 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        {line.qty_ordered} {line.product?.base_uom}
+                        {line.qty_ordered} {t(`uom.${line.product?.base_uom}`)}
                       </TableCell>
                       <TableCell className="text-right">
-                        {line.qty_received} {line.product?.base_uom}
+                        {line.qty_received} {t(`uom.${line.product?.base_uom}`)}
                       </TableCell>
                       <TableCell className="text-right">
                         <span className={remaining > 0 ? 'text-orange-600' : 'text-green-600'}>
-                          {remaining} {line.product?.base_uom}
+                          {remaining} {t(`uom.${line.product?.base_uom}`)}
                         </span>
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatCurrency(line.unit_cost)}
+                        {formatCurrency(line.unit_cost, currency, locale)}
                       </TableCell>
                       <TableCell className="text-right font-medium">
-                        {formatCurrency(line.qty_ordered * line.unit_cost)}
+                        {formatCurrency(line.qty_ordered * line.unit_cost, currency, locale)}
                       </TableCell>
                     </TableRow>
                   )
@@ -193,14 +206,20 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
 
           <div className="flex flex-col items-end gap-2 mt-4 text-right">
             <div className="text-sm text-gray-500">
-              Received Total: {formatCurrency(receivedTotal)}
+              {t('purchaseOrders.receivedTotal')}: {formatCurrency(receivedTotal, currency, locale)}
             </div>
             <div className="text-lg font-bold">
-              Order Total: {formatCurrency(orderTotal)}
+              {t('purchaseOrders.orderTotal')}: {formatCurrency(orderTotal, currency, locale)}
             </div>
           </div>
         </CardContent>
       </Card>
+
+      <DocumentUpload
+        entityType="purchase_order"
+        entityId={po.id}
+        readOnly={po.status === 'cancelled'}
+      />
     </div>
   )
 }

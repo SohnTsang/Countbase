@@ -20,13 +20,5 @@ export default async function EditCustomerPage({ params }: EditCustomerPageProps
     notFound()
   }
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Edit Customer</h1>
-        <p className="text-gray-600">Update customer information</p>
-      </div>
-      <CustomerForm customer={customer} />
-    </div>
-  )
+  return <CustomerForm customer={customer} />
 }

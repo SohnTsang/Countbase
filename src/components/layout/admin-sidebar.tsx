@@ -45,7 +45,7 @@ const adminNavigation: NavGroup[] = [
   {
     name: 'Management',
     items: [
-      { name: 'All Tenants', href: '/admin/tenants', icon: Users, disabled: true },
+      { name: 'All Tenants', href: '/admin/tenants', icon: Users },
       { name: 'Admin Settings', href: '/admin/settings', icon: Settings, disabled: true },
     ],
   },

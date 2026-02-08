@@ -1,52 +1,77 @@
 import { createClient } from '@/lib/supabase/server'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { formatDate } from '@/lib/utils'
 import { ExpiringExport } from './expiring-export'
+import { ExpiringClient, type ExpiringData } from './expiring-client'
 import { getTranslator } from '@/lib/i18n/server'
 
 export default async function ExpiringReportPage() {
   const supabase = await createClient()
   const t = await getTranslator()
 
-  // Get inventory balances with expiry dates in next 30 days
+  // Get calculated stock with expiry dates in next 30 days (source of truth from stock_movements)
   const thirtyDaysFromNow = new Date()
   thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30)
 
-  const { data: expiring } = await supabase
-    .from('inventory_balances')
-    .select(`
-      id,
-      qty_on_hand,
-      lot_number,
-      expiry_date,
-      product:products(id, sku, name, base_uom),
-      location:locations(id, name)
-    `)
+  // First get calculated stock filtered by expiry
+  const { data: stockData } = await supabase
+    .from('calculated_stock')
+    .select('*')
     .not('expiry_date', 'is', null)
     .lte('expiry_date', thirtyDaysFromNow.toISOString().split('T')[0])
-    .gt('qty_on_hand', 0)
     .order('expiry_date', { ascending: true })
+
+  // Get products and locations for joining
+  const productIds = [...new Set(stockData?.map((s) => s.product_id) || [])]
+  const locationIds = [...new Set(stockData?.map((s) => s.location_id) || [])]
+
+  const [productsRes, locationsRes] = await Promise.all([
+    productIds.length > 0
+      ? supabase.from('products').select('id, sku, name, base_uom').in('id', productIds)
+      : Promise.resolve({ data: [] }),
+    locationIds.length > 0
+      ? supabase.from('locations').select('id, name').in('id', locationIds)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const productsMap = new Map(productsRes.data?.map((p) => [p.id, p]) || [])
+  const locationsMap = new Map(locationsRes.data?.map((l) => [l.id, l]) || [])
+
+  // Get all locations for filter
+  const { data: allLocations } = await supabase
+    .from('locations')
+    .select('id, name')
+    .eq('active', true)
+    .order('name')
 
   // Calculate days until expiry
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  const expiringWithDays = expiring?.map((item) => {
-    const expiryDate = new Date(item.expiry_date!)
+  // Join data and calculate days
+  const expiringWithDays: ExpiringData[] = (stockData || []).map((s, index) => {
+    const expiryDate = new Date(s.expiry_date!)
     expiryDate.setHours(0, 0, 0, 0)
     const diffTime = expiryDate.getTime() - today.getTime()
     const daysUntilExpiry = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-    return { ...item, days_until_expiry: daysUntilExpiry }
+
+    return {
+      id: `${s.product_id}-${s.location_id}-${index}`,
+      qty_on_hand: s.qty_on_hand,
+      lot_number: s.lot_number,
+      expiry_date: s.expiry_date!,
+      days_until_expiry: daysUntilExpiry,
+      avg_cost: s.avg_cost || 0,
+      inventory_value: (s.qty_on_hand || 0) * (s.avg_cost || 0),
+      location_id: s.location_id,
+      product: productsMap.get(s.product_id) || null,
+      location: locationsMap.get(s.location_id) || null,
+    }
   })
 
-  // Prepare export data
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const exportData = expiringWithDays?.map((item: any) => ({
+  // Prepare export data with all fields
+  const exportData = expiringWithDays.map((item) => ({
     sku: item.product?.sku || '',
     product: item.product?.name || '',
     location: item.location?.name || '',
@@ -54,8 +79,10 @@ export default async function ExpiringReportPage() {
     expiry_date: item.expiry_date || '',
     qty: item.qty_on_hand,
     uom: item.product?.base_uom || '',
+    avg_cost: item.avg_cost,
+    inventory_value: item.inventory_value,
     days_until_expiry: item.days_until_expiry,
-  })) || []
+  }))
 
   return (
     <div className="space-y-6">
@@ -74,52 +101,10 @@ export default async function ExpiringReportPage() {
         <ExpiringExport data={exportData} />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{`${expiringWithDays?.length || 0} ${t('reports.itemsExpiringSoon')}`}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {expiringWithDays && expiringWithDays.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('products.sku')}</TableHead>
-                  <TableHead>{t('products.product')}</TableHead>
-                  <TableHead>{t('stock.location')}</TableHead>
-                  <TableHead>{t('stock.lotNumber')}</TableHead>
-                  <TableHead>{t('table.expiry')}</TableHead>
-                  <TableHead className="text-right">{t('common.quantity')}</TableHead>
-                  <TableHead>{t('reports.daysLeft')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              {expiringWithDays.map((item: any) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-mono">{item.product?.sku}</TableCell>
-                    <TableCell>{item.product?.name}</TableCell>
-                    <TableCell>{item.location?.name}</TableCell>
-                    <TableCell>{item.lot_number || '-'}</TableCell>
-                    <TableCell>{formatDate(item.expiry_date)}</TableCell>
-                    <TableCell className="text-right">
-                      {item.qty_on_hand} {item.product?.base_uom}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={item.days_until_expiry <= 7 ? 'destructive' : 'default'}>
-                        {item.days_until_expiry <= 0 ? t('reports.expired') : `${item.days_until_expiry}d`}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <p className="text-center text-gray-500 py-8">
-              {t('reports.noProductsExpiring')}
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      <ExpiringClient
+        data={expiringWithDays}
+        locations={allLocations || []}
+      />
     </div>
   )
 }

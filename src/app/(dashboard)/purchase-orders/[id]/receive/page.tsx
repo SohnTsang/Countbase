@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ArrowLeft } from 'lucide-react'
 import { ReceiveForm } from '@/components/forms/receive-form'
+import { getTranslator, getLocale } from '@/lib/i18n/server'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -13,6 +14,18 @@ interface PageProps {
 export default async function ReceivePage({ params }: PageProps) {
   const { id } = await params
   const supabase = await createClient()
+  const t = await getTranslator()
+  const locale = await getLocale()
+
+  // Get current user's tenant settings for currency
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: userData } = await supabase
+    .from('users')
+    .select('tenant:tenants(settings)')
+    .eq('id', user?.id)
+    .single()
+
+  const currency = (userData?.tenant as { settings?: { default_currency?: string } })?.settings?.default_currency || 'USD'
 
   const { data: po, error } = await supabase
     .from('purchase_orders')
@@ -41,15 +54,14 @@ export default async function ReceivePage({ params }: PageProps) {
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Link href={`/purchase-orders/${id}`}>
-            <Button variant="ghost" size="sm">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Cannot Receive</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{t('purchaseOrders.cannotReceive')}</h1>
             <p className="text-gray-600">
-              This PO is {po.status}. Only confirmed or partial POs can receive items.
+              {t('purchaseOrders.cannotReceiveDesc').replace('{status}', t(`common.${po.status}`))}
             </p>
           </div>
         </div>
@@ -67,25 +79,24 @@ export default async function ReceivePage({ params }: PageProps) {
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Link href={`/purchase-orders/${id}`}>
-          <Button variant="ghost" size="sm">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back
+          <Button variant="ghost" size="icon">
+            <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">Receive: {po.po_number}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{t('purchaseOrders.receive')}: {po.po_number}</h1>
             <Badge variant="secondary">
-              {po.status.charAt(0).toUpperCase() + po.status.slice(1)}
+              {t(`common.${po.status}`)}
             </Badge>
           </div>
           <p className="text-gray-600">
-            From: {po.supplier?.name} | To: {po.location?.name}
+            {po.supplier?.name} | {po.location?.name}
           </p>
         </div>
       </div>
 
-      <ReceiveForm poId={id} lines={linesToReceive || []} />
+      <ReceiveForm poId={id} lines={linesToReceive || []} currency={currency} locale={locale} />
     </div>
   )
 }

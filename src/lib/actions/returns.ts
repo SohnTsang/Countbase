@@ -1,10 +1,10 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { returnSchema, type ReturnFormData } from '@/lib/validations/return'
 import { createAuditLog } from '@/lib/audit'
+import { deleteEntityDocuments } from '@/lib/actions/documents'
 
 export async function createReturn(formData: ReturnFormData) {
   const supabase = await createClient()
@@ -25,13 +25,23 @@ export async function createReturn(formData: ReturnFormData) {
 
   if (!userData) return { error: { _form: ['User not found'] } }
 
-  // Generate return number
-  const { count } = await supabase
+  // Generate return number - get the max existing number to avoid duplicates
+  const { data: lastReturn } = await supabase
     .from('returns')
-    .select('*', { count: 'exact', head: true })
+    .select('return_number')
     .eq('tenant_id', userData.tenant_id)
+    .order('return_number', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
-  const returnNumber = `RET-${String((count || 0) + 1).padStart(6, '0')}`
+  let nextNumber = 1
+  if (lastReturn?.return_number) {
+    const match = lastReturn.return_number.match(/RET-(\d+)/)
+    if (match) {
+      nextNumber = parseInt(match[1], 10) + 1
+    }
+  }
+  const returnNumber = `RET-${String(nextNumber).padStart(6, '0')}`
 
   const { data: returnDoc, error: returnError } = await supabase
     .from('returns')
@@ -85,7 +95,68 @@ export async function createReturn(formData: ReturnFormData) {
   })
 
   revalidatePath('/returns')
-  redirect('/returns')
+  return { success: true, id: returnDoc.id }
+}
+
+export async function updateReturn(id: string, formData: ReturnFormData) {
+  const supabase = await createClient()
+
+  const validated = returnSchema.safeParse(formData)
+  if (!validated.success) {
+    return { error: validated.error.flatten().fieldErrors }
+  }
+
+  const { data: ret } = await supabase
+    .from('returns')
+    .select('status, return_number')
+    .eq('id', id)
+    .single()
+
+  if (!ret) return { error: { _form: ['Return not found'] } }
+  if (ret.status !== 'draft') return { error: { _form: ['Can only edit draft returns'] } }
+
+  const { error: updateError } = await supabase
+    .from('returns')
+    .update({
+      return_type: validated.data.return_type,
+      location_id: validated.data.location_id,
+      partner_id: validated.data.partner_id || null,
+      partner_name: validated.data.partner_name || null,
+      reason: validated.data.reason || null,
+      notes: validated.data.notes || null,
+    })
+    .eq('id', id)
+
+  if (updateError) return { error: { _form: [updateError.message] } }
+
+  await supabase.from('return_lines').delete().eq('return_id', id)
+
+  const lines = validated.data.lines.map((line) => ({
+    return_id: id,
+    product_id: line.product_id,
+    qty: line.qty,
+    lot_number: line.lot_number || null,
+    expiry_date: line.expiry_date || null,
+  }))
+
+  const { error: linesError } = await supabase.from('return_lines').insert(lines)
+  if (linesError) return { error: { _form: [linesError.message] } }
+
+  await createAuditLog({
+    action: 'update',
+    resourceType: 'return',
+    resourceId: id,
+    resourceName: ret.return_number,
+    newValues: {
+      return_type: validated.data.return_type,
+      location_id: validated.data.location_id,
+      lines_count: lines.length,
+    },
+  })
+
+  revalidatePath('/returns')
+  revalidatePath(`/returns/${id}`)
+  return { success: true }
 }
 
 export async function processReturn(id: string) {
@@ -114,13 +185,34 @@ export async function processReturn(id: string) {
   const returnedItems: { product_id: string; qty: number }[] = []
 
   for (const line of returnDoc.lines || []) {
-    // Get current balance for cost
-    const { data: balance } = await supabase
+    // Normalize lot_number and expiry_date
+    const lotNumber = line.lot_number?.trim() || null
+    const expiryDate = line.expiry_date?.trim() || null
+
+    // Get current balance for cost - filter by lot/expiry for precision
+    let balanceQuery = supabase
       .from('inventory_balances')
       .select('id, qty_on_hand, avg_cost')
       .eq('product_id', line.product_id)
       .eq('location_id', returnDoc.location_id)
-      .maybeSingle()
+
+    if (lotNumber) {
+      balanceQuery = balanceQuery.eq('lot_number', lotNumber)
+    } else {
+      balanceQuery = balanceQuery.or('lot_number.is.null,lot_number.eq.')
+    }
+
+    if (expiryDate) {
+      balanceQuery = balanceQuery.eq('expiry_date', expiryDate)
+    } else {
+      balanceQuery = balanceQuery.or('expiry_date.is.null,expiry_date.eq.')
+    }
+
+    const { data: balance, error: balanceError } = await balanceQuery.maybeSingle()
+
+    if (balanceError) {
+      return { error: `Error finding stock: ${balanceError.message}` }
+    }
 
     const unitCost = balance?.avg_cost || 0
     const qtyChange = isCustomerReturn ? line.qty : -line.qty
@@ -132,7 +224,7 @@ export async function processReturn(id: string) {
         const newQty = balance.qty_on_hand + line.qty
         const newAvgCost = ((balance.qty_on_hand * balance.avg_cost) + (line.qty * unitCost)) / newQty
 
-        await supabase
+        const { error: updateError } = await supabase
           .from('inventory_balances')
           .update({
             qty_on_hand: newQty,
@@ -140,16 +232,24 @@ export async function processReturn(id: string) {
             updated_at: new Date().toISOString(),
           })
           .eq('id', balance.id)
+
+        if (updateError) {
+          return { error: `Error updating stock: ${updateError.message}` }
+        }
       } else {
-        await supabase.from('inventory_balances').insert({
+        const { error: insertError } = await supabase.from('inventory_balances').insert({
           tenant_id: userData?.tenant_id,
           product_id: line.product_id,
           location_id: returnDoc.location_id,
-          lot_number: line.lot_number || null,
-          expiry_date: line.expiry_date || null,
+          lot_number: lotNumber,
+          expiry_date: expiryDate,
           qty_on_hand: line.qty,
           avg_cost: unitCost,
         })
+
+        if (insertError) {
+          return { error: `Error creating stock: ${insertError.message}` }
+        }
       }
     } else {
       // Supplier return: REMOVE from inventory
@@ -157,13 +257,17 @@ export async function processReturn(id: string) {
         return { error: `Insufficient stock for ${line.product?.sku || 'product'}` }
       }
 
-      await supabase
+      const { error: updateError } = await supabase
         .from('inventory_balances')
         .update({
           qty_on_hand: balance.qty_on_hand - line.qty,
           updated_at: new Date().toISOString(),
         })
         .eq('id', balance.id)
+
+      if (updateError) {
+        return { error: `Error updating stock: ${updateError.message}` }
+      }
     }
 
     // Update line with cost
@@ -181,8 +285,8 @@ export async function processReturn(id: string) {
       movement_type: movementType,
       reference_type: 'return',
       reference_id: id,
-      lot_number: line.lot_number || null,
-      expiry_date: line.expiry_date || null,
+      lot_number: lotNumber,
+      expiry_date: expiryDate,
       unit_cost: unitCost,
       created_by: user.id,
     })
@@ -207,6 +311,9 @@ export async function processReturn(id: string) {
   revalidatePath('/returns')
   revalidatePath(`/returns/${id}`)
   revalidatePath('/stock')
+  revalidatePath('/shipments/new')
+  revalidatePath('/transfers/new')
+  revalidatePath('/returns/new')
   return { success: true }
 }
 
@@ -254,6 +361,7 @@ export async function deleteReturn(id: string) {
     return { error: 'Can only delete draft returns' }
   }
 
+  await deleteEntityDocuments('return', id)
   await supabase.from('returns').delete().eq('id', id)
 
   // Audit log

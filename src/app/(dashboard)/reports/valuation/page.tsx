@@ -1,40 +1,55 @@
 import { createClient } from '@/lib/supabase/server'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Card, CardContent } from '@/components/ui/card'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { formatCurrency } from '@/lib/utils'
 import { ValuationExport } from './valuation-export'
+import { ValuationClient, type ValuationData } from './valuation-client'
 import { getTranslator } from '@/lib/i18n/server'
 
 export default async function ValuationReportPage() {
   const supabase = await createClient()
   const t = await getTranslator()
 
-  const { data: balances } = await supabase
-    .from('inventory_balances')
-    .select(`
-      id,
-      qty_on_hand,
-      avg_cost,
-      inventory_value,
-      product:products(id, sku, name, base_uom),
-      location:locations(id, name)
-    `)
-    .gt('qty_on_hand', 0)
-    .order('inventory_value', { ascending: false })
+  // Use calculated stock (from stock_movements) as source of truth
+  const { data: balances } = await supabase.rpc('get_calculated_stock')
 
-  // Calculate totals
-  const totalValue = balances?.reduce((sum, b) => sum + (b.inventory_value || 0), 0) || 0
-  const totalItems = balances?.reduce((sum, b) => sum + (b.qty_on_hand || 0), 0) || 0
+  const { data: locations } = await supabase
+    .from('locations')
+    .select('id, name')
+    .eq('active', true)
+    .order('name')
 
-  // Prepare export data
+  // Get categories for chart grouping and filtering
+  const { data: categories } = await supabase
+    .from('categories')
+    .select('id, name')
+    .eq('active', true)
+    .order('name')
+
+  // Prepare table data
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tableData: ValuationData[] = balances?.map((b: any, index: number) => ({
+    id: `${b.product_id}-${b.location_id}-${index}`,
+    product_id: b.product_id,
+    location_id: b.location_id,
+    qty_on_hand: b.qty_on_hand,
+    avg_cost: b.avg_cost,
+    inventory_value: b.inventory_value,
+    lot_number: b.lot_number,
+    expiry_date: b.expiry_date,
+    product: b.product,
+    location: b.location,
+  })) || []
+
+  // Prepare export data with all fields
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const exportData = balances?.map((b: any) => ({
     sku: b.product?.sku || '',
     product: b.product?.name || '',
     location: b.location?.name || '',
+    lot_number: b.lot_number || '',
+    expiry_date: b.expiry_date || '',
     qty: b.qty_on_hand,
     uom: b.product?.base_uom || '',
     avg_cost: b.avg_cost || 0,
@@ -58,65 +73,11 @@ export default async function ValuationReportPage() {
         <ValuationExport data={exportData} />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-gray-500">{t('reports.totalValue')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{formatCurrency(totalValue)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-gray-500">{t('reports.totalItems')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{totalItems.toLocaleString()}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('reports.inventoryByProductLocation')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {balances && balances.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('products.sku')}</TableHead>
-                  <TableHead>{t('products.product')}</TableHead>
-                  <TableHead>{t('stock.location')}</TableHead>
-                  <TableHead className="text-right">{t('common.quantity')}</TableHead>
-                  <TableHead className="text-right">{t('reports.avgCost')}</TableHead>
-                  <TableHead className="text-right">{t('reports.totalValue')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              {balances.map((b: any) => (
-                  <TableRow key={b.id}>
-                    <TableCell className="font-mono">{b.product?.sku}</TableCell>
-                    <TableCell>{b.product?.name}</TableCell>
-                    <TableCell>{b.location?.name}</TableCell>
-                    <TableCell className="text-right">
-                      {b.qty_on_hand} {b.product?.base_uom}
-                    </TableCell>
-                    <TableCell className="text-right">{formatCurrency(b.avg_cost)}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(b.inventory_value)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <p className="text-center text-gray-500 py-8">{t('reports.noInventory')}</p>
-          )}
-        </CardContent>
-      </Card>
+      <ValuationClient
+        data={tableData}
+        locations={locations || []}
+        categories={categories || []}
+      />
     </div>
   )
 }

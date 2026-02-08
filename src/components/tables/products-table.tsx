@@ -38,12 +38,13 @@ import type { Product } from '@/types'
 
 interface ProductsTableProps {
   data: Product[]
+  currency?: string
 }
 
-export function ProductsTable({ data }: ProductsTableProps) {
+export function ProductsTable({ data, currency = 'USD' }: ProductsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
 
   const columns: ColumnDef<Product>[] = [
     {
@@ -72,13 +73,30 @@ export function ProductsTable({ data }: ProductsTableProps) {
         const uom = row.getValue('base_uom') as string
         const packName = row.original.pack_uom_name
         const packQty = row.original.pack_qty_in_base
-        return packName ? `${uom} (${packQty}/${packName})` : uom
+        const localizedUom = t(`uom.${uom}`)
+        return packName ? `${localizedUom} (${packQty}/${packName})` : localizedUom
       },
     },
     {
       accessorKey: 'current_cost',
       header: t('products.currentCost'),
-      cell: ({ row }) => formatCurrency(row.getValue('current_cost')),
+      cell: ({ row }) => formatCurrency(row.getValue('current_cost'), currency, locale),
+    },
+    {
+      accessorKey: 'reorder_point',
+      header: t('products.reorderPoint'),
+      cell: ({ row }) => {
+        const value = row.getValue('reorder_point') as number | null
+        return value ?? '-'
+      },
+    },
+    {
+      accessorKey: 'reorder_qty',
+      header: t('products.reorderQty'),
+      cell: ({ row }) => {
+        const value = row.getValue('reorder_qty') as number | null
+        return value ?? '-'
+      },
     },
     {
       accessorKey: 'track_expiry',

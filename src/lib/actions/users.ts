@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createUserSchemaDefault, userSchema, type CreateUserFormData, type UserFormData } from '@/lib/validations/user'
 import { createAuditLog } from '@/lib/audit'
@@ -119,7 +118,7 @@ export async function createUser(formData: CreateUserFormData) {
   })
 
   revalidatePath('/users')
-  redirect('/users')
+  return { success: true }
 }
 
 export async function updateUser(id: string, formData: UserFormData) {
@@ -203,7 +202,7 @@ export async function updateUser(id: string, formData: UserFormData) {
   })
 
   revalidatePath('/users')
-  redirect('/users')
+  return { success: true }
 }
 
 export async function toggleUserActive(id: string, active: boolean) {

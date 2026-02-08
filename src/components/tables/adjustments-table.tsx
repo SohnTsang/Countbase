@@ -51,7 +51,7 @@ interface AdjustmentsTableProps {
 export function AdjustmentsTable({ data }: AdjustmentsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
 
   const REASON_LABELS: Record<string, string> = {
     damage: t('adjustments.damage'),
@@ -107,7 +107,7 @@ export function AdjustmentsTable({ data }: AdjustmentsTableProps) {
     {
       accessorKey: 'created_at',
       header: t('common.createdAt'),
-      cell: ({ row }) => formatDate(row.getValue('created_at')),
+      cell: ({ row }) => formatDate(row.getValue('created_at'), locale),
     },
     {
       id: 'actions',

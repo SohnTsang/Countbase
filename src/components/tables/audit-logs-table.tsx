@@ -68,7 +68,15 @@ export function AuditLogsTable({
   const router = useRouter()
   const searchParams = useSearchParams()
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null)
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
+
+  // Map app locales to Intl locale codes
+  const localeMap: Record<string, string> = {
+    en: 'en-US',
+    ja: 'ja-JP',
+    es: 'es-ES',
+    zh: 'zh-CN',
+  }
 
   const handlePageChange = (newPage: number) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -88,7 +96,8 @@ export function AuditLogsTable({
   }
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('en-US', {
+    const intlLocale = localeMap[locale] || 'en-US'
+    return new Date(dateString).toLocaleString(intlLocale, {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

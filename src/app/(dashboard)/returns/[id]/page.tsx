@@ -15,6 +15,8 @@ import {
 import { ArrowLeft } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { ReturnActions } from '@/components/return-actions'
+import { DocumentUpload } from '@/components/documents/document-upload'
+import { getTranslator, getLocale } from '@/lib/i18n/server'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -34,6 +36,18 @@ const typeColors: Record<string, string> = {
 export default async function ReturnDetailPage({ params }: PageProps) {
   const { id } = await params
   const supabase = await createClient()
+  const t = await getTranslator()
+  const locale = await getLocale()
+
+  // Get current user's tenant settings for currency
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: userData } = await supabase
+    .from('users')
+    .select('tenant:tenants(settings)')
+    .eq('id', user?.id)
+    .single()
+
+  const currency = (userData?.tenant as { settings?: { default_currency?: string } })?.settings?.default_currency || 'USD'
 
   const { data: returnDoc, error } = await supabase
     .from('returns')
@@ -62,27 +76,37 @@ export default async function ReturnDetailPage({ params }: PageProps) {
     return sum + line.qty * (line.unit_cost || 0)
   }, 0) || 0
 
+  const statusTranslations: Record<string, string> = {
+    draft: t('common.draft'),
+    completed: t('common.completed'),
+    cancelled: t('common.cancelled'),
+  }
+
+  const typeTranslations: Record<string, string> = {
+    customer: t('returns.fromCustomer'),
+    supplier: t('returns.toSupplier'),
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <Link href="/returns">
-            <Button variant="ghost" size="sm">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-gray-900">{returnDoc.return_number}</h1>
               <Badge className={typeColors[returnDoc.return_type] || ''}>
-                {returnDoc.return_type === 'customer' ? 'From Customer' : 'To Supplier'}
+                {typeTranslations[returnDoc.return_type] || returnDoc.return_type}
               </Badge>
               <Badge className={statusColors[returnDoc.status] || ''}>
-                {returnDoc.status.charAt(0).toUpperCase() + returnDoc.status.slice(1)}
+                {statusTranslations[returnDoc.status] || returnDoc.status}
               </Badge>
             </div>
-            <p className="text-gray-600">Created: {formatDate(returnDoc.created_at)}</p>
+            <p className="text-gray-600">{t('common.createdAt')}: {formatDate(returnDoc.created_at, locale)}</p>
           </div>
         </div>
         <ReturnActions returnDoc={returnDoc} />
@@ -91,28 +115,28 @@ export default async function ReturnDetailPage({ params }: PageProps) {
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Details</CardTitle>
+            <CardTitle>{t('returns.details')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <div>
               <span className="text-sm text-gray-500">
-                {returnDoc.return_type === 'customer' ? 'Customer:' : 'Supplier:'}
+                {returnDoc.return_type === 'customer' ? t('customers.customer') : t('suppliers.supplier')}:
               </span>
               <p className="font-medium">{returnDoc.partner_name || '-'}</p>
             </div>
             <div>
-              <span className="text-sm text-gray-500">Location:</span>
+              <span className="text-sm text-gray-500">{t('stock.location')}:</span>
               <p className="font-medium">{returnDoc.location?.name}</p>
             </div>
             {returnDoc.reason && (
               <div>
-                <span className="text-sm text-gray-500">Reason:</span>
+                <span className="text-sm text-gray-500">{t('returns.reason')}:</span>
                 <p>{returnDoc.reason}</p>
               </div>
             )}
             {returnDoc.notes && (
               <div>
-                <span className="text-sm text-gray-500">Notes:</span>
+                <span className="text-sm text-gray-500">{t('common.notes')}:</span>
                 <p>{returnDoc.notes}</p>
               </div>
             )}
@@ -121,23 +145,23 @@ export default async function ReturnDetailPage({ params }: PageProps) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Summary</CardTitle>
+            <CardTitle>{t('returns.summary')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <div>
-              <span className="text-sm text-gray-500">Total Items:</span>
+              <span className="text-sm text-gray-500">{t('returns.totalItems')}:</span>
               <p className="font-medium">{returnDoc.lines?.length || 0}</p>
             </div>
             <div>
-              <span className="text-sm text-gray-500">Stock Impact:</span>
+              <span className="text-sm text-gray-500">{t('returns.stockImpact')}:</span>
               <p className="font-medium">
-                {returnDoc.return_type === 'customer' ? 'Adds to inventory' : 'Removes from inventory'}
+                {returnDoc.return_type === 'customer' ? t('returns.addsToInventory') : t('returns.removesFromInventory')}
               </p>
             </div>
             {returnDoc.status === 'completed' && returnTotal > 0 && (
               <div>
-                <span className="text-sm text-gray-500">Total Value:</span>
-                <p className="font-medium">{formatCurrency(returnTotal)}</p>
+                <span className="text-sm text-gray-500">{t('returns.totalValue')}:</span>
+                <p className="font-medium">{formatCurrency(returnTotal, currency, locale)}</p>
               </div>
             )}
           </CardContent>
@@ -146,19 +170,19 @@ export default async function ReturnDetailPage({ params }: PageProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Items</CardTitle>
+          <CardTitle>{t('returns.items')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead className="text-right">Quantity</TableHead>
-                  <TableHead>Lot #</TableHead>
-                  <TableHead>Expiry</TableHead>
-                  <TableHead className="text-right">Unit Cost</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead>{t('products.product')}</TableHead>
+                  <TableHead className="text-center w-[120px]">{t('common.quantity')}</TableHead>
+                  <TableHead className="text-center w-[140px]">{t('stock.lotNumber')}</TableHead>
+                  <TableHead className="text-center w-[120px]">{t('stock.expiryDate')}</TableHead>
+                  <TableHead className="text-right w-[120px]">{t('purchaseOrders.unitCost')}</TableHead>
+                  <TableHead className="text-right w-[120px]">{t('common.total')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -171,26 +195,40 @@ export default async function ReturnDetailPage({ params }: PageProps) {
                         <p className="text-sm text-gray-600">{line.product?.name}</p>
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">
-                      {line.qty} {line.product?.base_uom}
+                    <TableCell className="text-center">
+                      {line.qty} {t(`uom.${line.product?.base_uom}`)}
                     </TableCell>
-                    <TableCell>{line.lot_number || '-'}</TableCell>
-                    <TableCell>
-                      {line.expiry_date ? formatDate(line.expiry_date) : '-'}
+                    <TableCell className="text-center">{line.lot_number || '-'}</TableCell>
+                    <TableCell className="text-center">
+                      {line.expiry_date ? formatDate(line.expiry_date, locale) : '-'}
                     </TableCell>
                     <TableCell className="text-right">
-                      {line.unit_cost ? formatCurrency(line.unit_cost) : '-'}
+                      {line.unit_cost ? formatCurrency(line.unit_cost, currency, locale) : '-'}
                     </TableCell>
                     <TableCell className="text-right font-medium">
-                      {line.unit_cost ? formatCurrency(line.qty * line.unit_cost) : '-'}
+                      {line.unit_cost ? formatCurrency(line.qty * line.unit_cost, currency, locale) : '-'}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
+
+          {returnDoc.status === 'completed' && returnTotal > 0 && (
+            <div className="flex justify-end mt-4">
+              <div className="text-lg font-bold">
+                {t('common.total')}: {formatCurrency(returnTotal, currency, locale)}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      <DocumentUpload
+        entityType="return"
+        entityId={returnDoc.id}
+        readOnly={returnDoc.status === 'cancelled'}
+      />
     </div>
   )
 }

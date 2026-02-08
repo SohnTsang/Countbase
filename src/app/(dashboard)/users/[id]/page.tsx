@@ -1,8 +1,5 @@
-import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Button } from '@/components/ui/button'
-import { ArrowLeft } from 'lucide-react'
 import { UserForm } from '@/components/forms/user-form'
 import { getAssignableRoles } from '@/lib/actions/users'
 import type { UserRole } from '@/types'
@@ -56,28 +53,11 @@ export default async function EditUserPage({ params }: PageProps) {
   const assignableRoles = await getAssignableRoles()
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Link href="/users">
-          <Button variant="ghost" size="sm">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back
-          </Button>
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {canEditUser ? 'Edit User' : 'View User'}
-          </h1>
-          <p className="text-gray-600">{userToEdit.name}</p>
-        </div>
-      </div>
-
-      <UserForm
-        user={userToEdit}
-        isCurrentUser={isCurrentUser}
-        assignableRoles={assignableRoles}
-        canEditUser={canEditUser}
-      />
-    </div>
+    <UserForm
+      user={userToEdit}
+      isCurrentUser={isCurrentUser}
+      assignableRoles={assignableRoles}
+      canEditUser={canEditUser}
+    />
   )
 }

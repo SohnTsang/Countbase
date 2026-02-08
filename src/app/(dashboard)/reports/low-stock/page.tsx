@@ -1,11 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LowStockExport } from './low-stock-export'
+import { LowStockClient, type LowStockData } from './low-stock-client'
 import { getTranslator } from '@/lib/i18n/server'
 
 export default async function LowStockReportPage() {
@@ -22,15 +20,25 @@ export default async function LowStockReportPage() {
       base_uom,
       reorder_point,
       reorder_qty,
+      current_cost,
+      category_id,
+      category:categories(name),
       active
     `)
     .eq('active', true)
     .gt('reorder_point', 0)
     .order('sku')
 
-  // Get inventory balances
+  // Get categories for filter
+  const { data: categories } = await supabase
+    .from('categories')
+    .select('id, name')
+    .eq('active', true)
+    .order('name')
+
+  // Get calculated stock (from stock_movements) as source of truth
   const { data: balances } = await supabase
-    .from('inventory_balances')
+    .from('calculated_stock')
     .select('product_id, qty_on_hand')
 
   // Calculate total on hand for each product
@@ -41,24 +49,36 @@ export default async function LowStockReportPage() {
   })
 
   // Filter products that are below reorder point
-  const lowStock = products
-    ?.map((p) => ({
-      ...p,
+  const lowStock: LowStockData[] = (products || [])
+    .map((p) => ({
+      id: p.id,
+      sku: p.sku,
+      name: p.name,
+      base_uom: p.base_uom,
+      reorder_point: p.reorder_point,
+      reorder_qty: p.reorder_qty,
+      current_cost: p.current_cost,
+      category_id: p.category_id,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      category_name: (p.category as any)?.name || null,
       total_on_hand: stockByProduct.get(p.id) || 0,
     }))
     .filter((p) => p.total_on_hand < p.reorder_point)
     .sort((a, b) => a.total_on_hand - b.total_on_hand)
 
-  // Prepare export data
-  const exportData = lowStock?.map((item) => ({
+  // Prepare export data with all fields
+  const exportData = lowStock.map((item) => ({
     sku: item.sku,
     product: item.name,
+    category: item.category_name || '',
     uom: item.base_uom,
     on_hand: item.total_on_hand,
     reorder_point: item.reorder_point,
     reorder_qty: item.reorder_qty,
     shortage: item.reorder_point - item.total_on_hand,
-  })) || []
+    current_cost: item.current_cost,
+    shortage_value: (item.reorder_point - item.total_on_hand) * item.current_cost,
+  }))
 
   return (
     <div className="space-y-6">
@@ -77,51 +97,10 @@ export default async function LowStockReportPage() {
         <LowStockExport data={exportData} />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{`${lowStock?.length || 0} ${t('reports.productsNeedReordering')}`}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {lowStock && lowStock.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('products.sku')}</TableHead>
-                  <TableHead>{t('products.product')}</TableHead>
-                  <TableHead>{t('reports.unit')}</TableHead>
-                  <TableHead className="text-right">{t('reports.onHand')}</TableHead>
-                  <TableHead className="text-right">{t('products.reorderPoint')}</TableHead>
-                  <TableHead className="text-right">{t('products.reorderQty')}</TableHead>
-                  <TableHead>{t('common.status')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lowStock.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-mono">{item.sku}</TableCell>
-                    <TableCell>{item.name}</TableCell>
-                    <TableCell>{item.base_uom}</TableCell>
-                    <TableCell className="text-right">{item.total_on_hand}</TableCell>
-                    <TableCell className="text-right">{item.reorder_point}</TableCell>
-                    <TableCell className="text-right">{item.reorder_qty}</TableCell>
-                    <TableCell>
-                      <Badge variant={item.total_on_hand === 0 ? 'destructive' : 'default'}>
-                        {item.total_on_hand === 0
-                          ? t('reports.outOfStock')
-                          : `${t('reports.short')} ${item.reorder_point - item.total_on_hand}`}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <p className="text-center text-gray-500 py-8">
-              {t('reports.allProductsAboveReorderPoint')}
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      <LowStockClient
+        data={lowStock}
+        categories={categories || []}
+      />
     </div>
   )
 }

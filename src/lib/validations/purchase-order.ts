@@ -27,6 +27,7 @@ export const createReceiveLineSchema = (t: TranslationFn) => z.object({
 
 export const createReceiveSchema = (t: TranslationFn) => z.object({
   lines: z.array(createReceiveLineSchema(t)),
+  received_date: z.string().nullable().optional(),
 })
 
 // Default schemas for type inference

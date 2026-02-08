@@ -5,23 +5,34 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatCurrency(amount: number, currency = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
+// Map app locales to Intl locale codes
+const localeMap: Record<string, string> = {
+  en: 'en-US',
+  ja: 'ja-JP',
+  es: 'es-ES',
+  zh: 'zh-CN',
+}
+
+export function formatCurrency(amount: number, currency = 'USD', locale = 'en'): string {
+  const intlLocale = localeMap[locale] || 'en-US'
+  return new Intl.NumberFormat(intlLocale, {
     style: 'currency',
     currency,
   }).format(amount)
 }
 
-export function formatDate(date: string | Date): string {
-  return new Intl.DateTimeFormat('en-US', {
+export function formatDate(date: string | Date, locale = 'en'): string {
+  const intlLocale = localeMap[locale] || 'en-US'
+  return new Intl.DateTimeFormat(intlLocale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   }).format(new Date(date))
 }
 
-export function formatDateTime(date: string | Date): string {
-  return new Intl.DateTimeFormat('en-US', {
+export function formatDateTime(date: string | Date, locale = 'en'): string {
+  const intlLocale = localeMap[locale] || 'en-US'
+  return new Intl.DateTimeFormat(intlLocale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',

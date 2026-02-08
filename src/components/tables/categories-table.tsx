@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +37,7 @@ import type { Category } from '@/types'
 
 interface CategoryWithParent extends Category {
   parent?: { id: string; name: string } | null
+  isChild?: boolean
 }
 
 interface CategoriesTableProps {
@@ -51,17 +53,34 @@ export function CategoriesTable({ data }: CategoriesTableProps) {
     {
       accessorKey: 'name',
       header: t('categories.categoryName'),
-      cell: ({ row }) => (
-        <span className="font-medium">{row.getValue('name')}</span>
-      ),
+      cell: ({ row }) => {
+        const isChild = row.original.isChild
+        const parent = row.original.parent
+        return (
+          <div className="flex items-center gap-2">
+            {isChild && (
+              <span className="text-gray-400 ml-4">└</span>
+            )}
+            <span className={isChild ? 'text-gray-700' : 'font-medium'}>
+              {row.getValue('name')}
+            </span>
+            {parent && (
+              <span className="text-xs text-gray-400">
+                ({parent.name})
+              </span>
+            )}
+          </div>
+        )
+      },
     },
     {
-      accessorKey: 'parent',
-      header: t('categories.parentCategory'),
-      cell: ({ row }) => {
-        const parent = row.original.parent
-        return parent ? parent.name : <span className="text-gray-400">-</span>
-      },
+      accessorKey: 'active',
+      header: t('common.status'),
+      cell: ({ row }) => (
+        <Badge variant={row.getValue('active') ? 'default' : 'secondary'}>
+          {row.getValue('active') ? t('common.active') : t('common.inactive')}
+        </Badge>
+      ),
     },
     {
       id: 'actions',

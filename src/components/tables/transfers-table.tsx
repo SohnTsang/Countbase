@@ -53,7 +53,7 @@ interface TransfersTableProps {
 export function TransfersTable({ data }: TransfersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
 
   const columns: ColumnDef<TransfersTableProps['data'][0]>[] = [
     {
@@ -96,7 +96,7 @@ export function TransfersTable({ data }: TransfersTableProps) {
     {
       accessorKey: 'created_at',
       header: t('common.createdAt'),
-      cell: ({ row }) => formatDate(row.getValue('created_at')),
+      cell: ({ row }) => formatDate(row.getValue('created_at'), locale),
     },
     {
       id: 'actions',

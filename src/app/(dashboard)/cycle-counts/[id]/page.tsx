@@ -12,9 +12,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Pencil } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
+import { getTranslator, getLocale } from '@/lib/i18n/server'
 import { CountEntryForm } from '@/components/forms/count-entry-form'
+import { DocumentUpload } from '@/components/documents/document-upload'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -29,6 +31,8 @@ const statusColors: Record<string, string> = {
 export default async function CycleCountDetailPage({ params }: PageProps) {
   const { id } = await params
   const supabase = await createClient()
+  const t = await getTranslator()
+  const locale = await getLocale()
 
   const { data: cycleCount, error } = await supabase
     .from('cycle_counts')
@@ -52,6 +56,12 @@ export default async function CycleCountDetailPage({ params }: PageProps) {
     notFound()
   }
 
+  const statusTranslations: Record<string, string> = {
+    draft: t('common.draft'),
+    completed: t('common.completed'),
+    cancelled: t('common.cancelled'),
+  }
+
   const totalItems = cycleCount.lines?.length || 0
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const countedItems = cycleCount.lines?.filter((l: any) => l.counted_qty !== null).length || 0
@@ -65,29 +75,36 @@ export default async function CycleCountDetailPage({ params }: PageProps) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <Link href="/cycle-counts">
-            <Button variant="ghost" size="sm">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-gray-900">{cycleCount.count_number}</h1>
               <Badge className={statusColors[cycleCount.status] || ''}>
-                {cycleCount.status.charAt(0).toUpperCase() + cycleCount.status.slice(1)}
+                {statusTranslations[cycleCount.status] || cycleCount.status}
               </Badge>
             </div>
             <p className="text-gray-600">
-              {cycleCount.location?.name} | Count Date: {formatDate(cycleCount.count_date)}
+              {cycleCount.location?.name} | {t('cycleCounts.countDate')}: {formatDate(cycleCount.count_date, locale)}
             </p>
           </div>
         </div>
+        {cycleCount.status === 'draft' && (
+          <Link href={`/cycle-counts/${id}/edit`}>
+            <Button variant="outline">
+              <Pencil className="mr-2 h-4 w-4" />
+              {t('common.edit')}
+            </Button>
+          </Link>
+        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Items</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('cycleCounts.totalItems')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalItems}</div>
@@ -96,7 +113,7 @@ export default async function CycleCountDetailPage({ params }: PageProps) {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Counted</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('cycleCounts.counted')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
@@ -107,7 +124,7 @@ export default async function CycleCountDetailPage({ params }: PageProps) {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Variances</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('cycleCounts.variances')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className={`text-2xl font-bold ${varianceItems > 0 ? 'text-orange-600' : 'text-green-600'}`}>
@@ -120,7 +137,7 @@ export default async function CycleCountDetailPage({ params }: PageProps) {
       {cycleCount.notes && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Notes</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('common.notes')}</CardTitle>
           </CardHeader>
           <CardContent>
             <p>{cycleCount.notes}</p>
@@ -133,18 +150,18 @@ export default async function CycleCountDetailPage({ params }: PageProps) {
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle>Count Results</CardTitle>
+            <CardTitle>{t('cycleCounts.countResults')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Lot #</TableHead>
-                    <TableHead className="text-right">System Qty</TableHead>
-                    <TableHead className="text-right">Counted Qty</TableHead>
-                    <TableHead className="text-right">Variance</TableHead>
+                    <TableHead>{t('products.product')}</TableHead>
+                    <TableHead>{t('stock.lotNumber')}</TableHead>
+                    <TableHead className="text-right">{t('cycleCounts.systemQty')}</TableHead>
+                    <TableHead className="text-right">{t('cycleCounts.countedQty')}</TableHead>
+                    <TableHead className="text-right">{t('cycleCounts.variance')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -161,10 +178,10 @@ export default async function CycleCountDetailPage({ params }: PageProps) {
                         </TableCell>
                         <TableCell>{line.lot_number || '-'}</TableCell>
                         <TableCell className="text-right">
-                          {line.system_qty} {line.product?.base_uom}
+                          {line.system_qty} {line.product?.base_uom ? t(`uom.${line.product.base_uom}`) : ''}
                         </TableCell>
                         <TableCell className="text-right">
-                          {line.counted_qty ?? '-'} {line.counted_qty !== null ? line.product?.base_uom : ''}
+                          {line.counted_qty ?? '-'} {line.counted_qty !== null && line.product?.base_uom ? t(`uom.${line.product.base_uom}`) : ''}
                         </TableCell>
                         <TableCell className="text-right">
                           <Badge
@@ -182,6 +199,12 @@ export default async function CycleCountDetailPage({ params }: PageProps) {
           </CardContent>
         </Card>
       )}
+
+      <DocumentUpload
+        entityType="cycle_count"
+        entityId={cycleCount.id}
+        readOnly={cycleCount.status === 'cancelled' || cycleCount.status === 'completed'}
+      />
     </div>
   )
 }

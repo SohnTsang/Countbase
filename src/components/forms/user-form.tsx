@@ -4,6 +4,8 @@ import { useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -72,11 +74,13 @@ export function UserForm({
         ? await updateUser(user.id, data as UserFormData)
         : await createUser(data)
 
-      if (result?.error) {
-        if (typeof result.error === 'string') {
-          toast.error(result.error)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err = (result as any)?.error
+      if (err) {
+        if (typeof err === 'string') {
+          toast.error(err)
         } else {
-          Object.entries(result.error).forEach(([field, messages]) => {
+          Object.entries(err).forEach(([field, messages]) => {
             if (Array.isArray(messages)) {
               messages.forEach((msg) => toast.error(`${field}: ${msg}`))
             }
@@ -86,6 +90,8 @@ export function UserForm({
       }
 
       toast.success(isEdit ? t('toast.userUpdated') : t('toast.userCreated'))
+      router.replace('/users')
+      router.refresh()
     } catch (error) {
       toast.error(t('common.errorOccurred'))
     }
@@ -95,12 +101,28 @@ export function UserForm({
   const isRoleEditable = !isCurrentUser && canEditUser && assignableRoles.includes(user?.role || 'staff')
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('users.userDetails')}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <div className="space-y-6">
+      <div className="flex items-center gap-4">
+        <Link href="/users">
+          <Button variant="ghost" size="icon">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </Link>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {isEdit ? t('users.editUser') : t('users.newUser')}
+          </h1>
+          <p className="text-gray-600">
+            {isEdit ? t('users.editUserSubtitle') : t('users.newUserSubtitle')}
+          </p>
+        </div>
+      </div>
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('users.userDetails')}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
           {!canEditUser && (
             <div className="rounded-md bg-yellow-50 p-4 mb-4">
               <p className="text-sm text-yellow-800">
@@ -163,7 +185,7 @@ export function UserForm({
               onValueChange={(value: string) => setValue('role', value as UserRole)}
               disabled={isCurrentUser || !canEditUser}
             >
-              <SelectTrigger>
+              <SelectTrigger id="role">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -216,7 +238,8 @@ export function UserForm({
         >
           {canEditUser ? t('common.cancel') : t('common.back')}
         </Button>
-      </div>
-    </form>
+        </div>
+      </form>
+    </div>
   )
 }

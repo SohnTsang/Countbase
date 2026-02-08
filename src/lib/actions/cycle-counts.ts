@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import {
   cycleCountSchema,
@@ -10,6 +9,7 @@ import {
   type CountEntryFormData,
 } from '@/lib/validations/cycle-count'
 import { createAuditLog } from '@/lib/audit'
+import { deleteEntityDocuments } from '@/lib/actions/documents'
 
 export async function createCycleCount(formData: CycleCountFormData) {
   const supabase = await createClient()
@@ -97,7 +97,96 @@ export async function createCycleCount(formData: CycleCountFormData) {
   })
 
   revalidatePath('/cycle-counts')
-  redirect('/cycle-counts')
+  return { success: true, id: cycleCount.id }
+}
+
+export async function updateCycleCount(id: string, formData: CycleCountFormData) {
+  const supabase = await createClient()
+
+  const validated = cycleCountSchema.safeParse(formData)
+  if (!validated.success) {
+    return { error: validated.error.flatten().fieldErrors }
+  }
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: { _form: ['Not authenticated'] } }
+
+  const { data: cycleCount } = await supabase
+    .from('cycle_counts')
+    .select('status, count_number')
+    .eq('id', id)
+    .single()
+
+  if (!cycleCount) return { error: { _form: ['Cycle count not found'] } }
+  if (cycleCount.status !== 'draft') return { error: { _form: ['Can only edit draft cycle counts'] } }
+
+  const { error: updateError } = await supabase
+    .from('cycle_counts')
+    .update({
+      location_id: validated.data.location_id,
+      count_date: validated.data.count_date,
+      notes: validated.data.notes || null,
+    })
+    .eq('id', id)
+
+  if (updateError) return { error: { _form: [updateError.message] } }
+
+  await supabase.from('cycle_count_lines').delete().eq('count_id', id)
+
+  // Re-capture system quantities from current inventory balances
+  const lines = []
+  for (const line of validated.data.lines) {
+    const lotNumber = line.lot_number?.trim() || null
+    const expiryDate = line.expiry_date?.trim() || null
+
+    let balanceQuery = supabase
+      .from('inventory_balances')
+      .select('qty_on_hand')
+      .eq('product_id', line.product_id)
+      .eq('location_id', validated.data.location_id)
+
+    if (lotNumber) {
+      balanceQuery = balanceQuery.eq('lot_number', lotNumber)
+    } else {
+      balanceQuery = balanceQuery.is('lot_number', null)
+    }
+
+    if (expiryDate) {
+      balanceQuery = balanceQuery.eq('expiry_date', expiryDate)
+    } else {
+      balanceQuery = balanceQuery.is('expiry_date', null)
+    }
+
+    const { data: balance } = await balanceQuery.maybeSingle()
+
+    lines.push({
+      count_id: id,
+      product_id: line.product_id,
+      system_qty: balance?.qty_on_hand || 0,
+      counted_qty: null,
+      lot_number: lotNumber,
+      expiry_date: expiryDate,
+    })
+  }
+
+  const { error: linesError } = await supabase.from('cycle_count_lines').insert(lines)
+  if (linesError) return { error: { _form: [linesError.message] } }
+
+  await createAuditLog({
+    action: 'update',
+    resourceType: 'cycle_count',
+    resourceId: id,
+    resourceName: cycleCount.count_number,
+    newValues: {
+      location_id: validated.data.location_id,
+      count_date: validated.data.count_date,
+      lines_count: lines.length,
+    },
+  })
+
+  revalidatePath('/cycle-counts')
+  revalidatePath(`/cycle-counts/${id}`)
+  return { success: true }
 }
 
 export async function updateCountedQty(countId: string, formData: CountEntryFormData) {
@@ -179,13 +268,27 @@ export async function postCycleCount(id: string) {
 
     if (variance === 0) continue
 
-    // Get current balance for cost
-    const { data: balance } = await supabase
+    // Get current balance for cost - must match lot_number and expiry_date
+    let balanceQuery = supabase
       .from('inventory_balances')
       .select('id, qty_on_hand, avg_cost')
       .eq('product_id', line.product_id)
       .eq('location_id', cycleCount.location_id)
-      .maybeSingle()
+
+    // Handle null lot_number and expiry_date properly
+    if (line.lot_number) {
+      balanceQuery = balanceQuery.eq('lot_number', line.lot_number)
+    } else {
+      balanceQuery = balanceQuery.is('lot_number', null)
+    }
+
+    if (line.expiry_date) {
+      balanceQuery = balanceQuery.eq('expiry_date', line.expiry_date)
+    } else {
+      balanceQuery = balanceQuery.is('expiry_date', null)
+    }
+
+    const { data: balance } = await balanceQuery.maybeSingle()
 
     const unitCost = balance?.avg_cost || 0
 
@@ -248,6 +351,9 @@ export async function postCycleCount(id: string) {
   revalidatePath('/cycle-counts')
   revalidatePath(`/cycle-counts/${id}`)
   revalidatePath('/stock')
+  revalidatePath('/shipments/new')
+  revalidatePath('/transfers/new')
+  revalidatePath('/returns/new')
   return { success: true }
 }
 
@@ -295,6 +401,7 @@ export async function deleteCycleCount(id: string) {
     return { error: 'Can only delete draft counts' }
   }
 
+  await deleteEntityDocuments('cycle_count', id)
   await supabase.from('cycle_counts').delete().eq('id', id)
 
   // Audit log

@@ -38,20 +38,25 @@ export function Sidebar() {
   const navigation = getNavigationForRole(role)
   const { t } = useTranslation()
 
-  // Initialize collapse state from localStorage or defaults
+  // Initialize with defaults first, then load from localStorage after mount
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
-    const stored = getStoredCollapseState()
     const initialState: Record<string, boolean> = {}
-
     navigation.forEach((group) => {
       if (group.name) {
-        // Use stored value if available, otherwise use default
-        initialState[group.name] = stored[group.name] ?? !group.defaultOpen
+        // Use default open state for SSR consistency
+        initialState[group.name] = !group.defaultOpen
       }
     })
-
     return initialState
   })
+
+  // Load stored collapse state after hydration
+  useEffect(() => {
+    const stored = getStoredCollapseState()
+    if (Object.keys(stored).length > 0) {
+      setCollapsedSections((prev) => ({ ...prev, ...stored }))
+    }
+  }, [])
 
   const toggleSection = (sectionName: string) => {
     setCollapsedSections((prev) => {

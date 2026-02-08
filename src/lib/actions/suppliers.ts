@@ -1,11 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { supplierSchema, type SupplierFormData } from '@/lib/validations/supplier'
 import { createAuditLog } from '@/lib/audit'
 import { computeChanges } from '@/lib/audit-utils'
+import { deleteEntityDocuments } from '@/lib/actions/documents'
 
 export async function getSuppliers() {
   const supabase = await createClient()
@@ -72,7 +72,7 @@ export async function createSupplier(formData: SupplierFormData) {
   })
 
   revalidatePath('/suppliers')
-  redirect('/suppliers')
+  return { success: true, id: newSupplier.id }
 }
 
 export async function updateSupplier(id: string, formData: SupplierFormData) {
@@ -124,7 +124,7 @@ export async function updateSupplier(id: string, formData: SupplierFormData) {
   })
 
   revalidatePath('/suppliers')
-  redirect('/suppliers')
+  return { success: true }
 }
 
 export async function deleteSupplier(id: string) {
@@ -147,6 +147,8 @@ export async function deleteSupplier(id: string) {
   if (orders && orders.length > 0) {
     return { error: 'Cannot delete supplier with existing purchase orders. Deactivate instead.' }
   }
+
+  await deleteEntityDocuments('supplier', id)
 
   const { error } = await supabase
     .from('suppliers')

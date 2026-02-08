@@ -1,10 +1,10 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { shipmentSchema, type ShipmentFormData } from '@/lib/validations/shipment'
 import { createAuditLog } from '@/lib/audit'
+import { deleteEntityDocuments } from '@/lib/actions/documents'
 
 export async function createShipment(formData: ShipmentFormData) {
   const supabase = await createClient()
@@ -53,13 +53,43 @@ export async function createShipment(formData: ShipmentFormData) {
     return { error: { _form: [shipmentError.message] } }
   }
 
-  const lines = validated.data.lines.map((line) => ({
-    shipment_id: shipment.id,
-    product_id: line.product_id,
-    qty: line.qty,
-    lot_number: line.lot_number || null,
-    expiry_date: line.expiry_date || null,
-  }))
+  // Build lines with unit_cost from inventory balance
+  const lines = []
+  for (const line of validated.data.lines) {
+    // Normalize lot_number and expiry_date (trim empty strings to null)
+    const lotNumber = line.lot_number?.trim() || null
+    const expiryDate = line.expiry_date?.trim() || null
+
+    // Get avg_cost from inventory balance for this product/location/lot/expiry
+    let balanceQuery = supabase
+      .from('inventory_balances')
+      .select('avg_cost')
+      .eq('product_id', line.product_id)
+      .eq('location_id', validated.data.location_id)
+
+    if (lotNumber) {
+      balanceQuery = balanceQuery.eq('lot_number', lotNumber)
+    } else {
+      balanceQuery = balanceQuery.or('lot_number.is.null,lot_number.eq.')
+    }
+
+    if (expiryDate) {
+      balanceQuery = balanceQuery.eq('expiry_date', expiryDate)
+    } else {
+      balanceQuery = balanceQuery.or('expiry_date.is.null,expiry_date.eq.')
+    }
+
+    const { data: balance } = await balanceQuery.maybeSingle()
+
+    lines.push({
+      shipment_id: shipment.id,
+      product_id: line.product_id,
+      qty: line.qty,
+      lot_number: lotNumber,
+      expiry_date: expiryDate,
+      unit_cost: balance?.avg_cost || 0,
+    })
+  }
 
   const { error: linesError } = await supabase.from('shipment_lines').insert(lines)
 
@@ -83,7 +113,95 @@ export async function createShipment(formData: ShipmentFormData) {
   })
 
   revalidatePath('/shipments')
-  redirect('/shipments')
+  return { success: true, id: shipment.id }
+}
+
+export async function updateShipment(id: string, formData: ShipmentFormData) {
+  const supabase = await createClient()
+
+  const validated = shipmentSchema.safeParse(formData)
+  if (!validated.success) {
+    return { error: validated.error.flatten().fieldErrors }
+  }
+
+  const { data: shipment } = await supabase
+    .from('shipments')
+    .select('status, shipment_number')
+    .eq('id', id)
+    .single()
+
+  if (!shipment) return { error: { _form: ['Shipment not found'] } }
+  if (shipment.status !== 'draft') return { error: { _form: ['Can only edit draft shipments'] } }
+
+  const { error: updateError } = await supabase
+    .from('shipments')
+    .update({
+      location_id: validated.data.location_id,
+      customer_id: validated.data.customer_id || null,
+      customer_name: validated.data.customer_name || null,
+      ship_date: validated.data.ship_date || null,
+      notes: validated.data.notes || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+
+  if (updateError) return { error: { _form: [updateError.message] } }
+
+  await supabase.from('shipment_lines').delete().eq('shipment_id', id)
+
+  const lines = []
+  for (const line of validated.data.lines) {
+    const lotNumber = line.lot_number?.trim() || null
+    const expiryDate = line.expiry_date?.trim() || null
+
+    let balanceQuery = supabase
+      .from('inventory_balances')
+      .select('avg_cost')
+      .eq('product_id', line.product_id)
+      .eq('location_id', validated.data.location_id)
+
+    if (lotNumber) {
+      balanceQuery = balanceQuery.eq('lot_number', lotNumber)
+    } else {
+      balanceQuery = balanceQuery.or('lot_number.is.null,lot_number.eq.')
+    }
+
+    if (expiryDate) {
+      balanceQuery = balanceQuery.eq('expiry_date', expiryDate)
+    } else {
+      balanceQuery = balanceQuery.or('expiry_date.is.null,expiry_date.eq.')
+    }
+
+    const { data: balance } = await balanceQuery.maybeSingle()
+
+    lines.push({
+      shipment_id: id,
+      product_id: line.product_id,
+      qty: line.qty,
+      lot_number: lotNumber,
+      expiry_date: expiryDate,
+      unit_cost: balance?.avg_cost || 0,
+    })
+  }
+
+  const { error: linesError } = await supabase.from('shipment_lines').insert(lines)
+  if (linesError) return { error: { _form: [linesError.message] } }
+
+  await createAuditLog({
+    action: 'update',
+    resourceType: 'shipment',
+    resourceId: id,
+    resourceName: shipment.shipment_number,
+    newValues: {
+      location_id: validated.data.location_id,
+      customer_id: validated.data.customer_id,
+      lines_count: lines.length,
+    },
+  })
+
+  revalidatePath('/shipments')
+  revalidatePath(`/shipments/${id}`)
+  return { success: true }
 }
 
 export async function confirmShipment(id: string) {
@@ -103,12 +221,29 @@ export async function confirmShipment(id: string) {
 
   // Check stock availability for all lines
   for (const line of shipment.lines || []) {
-    const { data: balance } = await supabase
+    // Normalize lot_number and expiry_date
+    const lotNumber = line.lot_number?.trim() || null
+    const expiryDate = line.expiry_date?.trim() || null
+
+    let balanceQuery = supabase
       .from('inventory_balances')
       .select('qty_on_hand')
       .eq('product_id', line.product_id)
       .eq('location_id', shipment.location_id)
-      .maybeSingle()
+
+    if (lotNumber) {
+      balanceQuery = balanceQuery.eq('lot_number', lotNumber)
+    } else {
+      balanceQuery = balanceQuery.or('lot_number.is.null,lot_number.eq.')
+    }
+
+    if (expiryDate) {
+      balanceQuery = balanceQuery.eq('expiry_date', expiryDate)
+    } else {
+      balanceQuery = balanceQuery.or('expiry_date.is.null,expiry_date.eq.')
+    }
+
+    const { data: balance } = await balanceQuery.maybeSingle()
 
     if (!balance || balance.qty_on_hand < line.qty) {
       return { error: `Insufficient stock for ${line.product?.sku || 'product'}` }
@@ -135,7 +270,7 @@ export async function confirmShipment(id: string) {
   return { success: true }
 }
 
-export async function shipShipment(id: string) {
+export async function shipShipment(id: string, shipDate?: string) {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -160,12 +295,34 @@ export async function shipShipment(id: string) {
 
   // Deduct stock and record movements
   for (const line of shipment.lines || []) {
-    const { data: balance } = await supabase
+    // Normalize lot_number and expiry_date
+    const lotNumber = line.lot_number?.trim() || null
+    const expiryDate = line.expiry_date?.trim() || null
+
+    // Query by product, location, lot_number, and expiry_date
+    let balanceQuery = supabase
       .from('inventory_balances')
-      .select('qty_on_hand, avg_cost')
+      .select('id, qty_on_hand, avg_cost')
       .eq('product_id', line.product_id)
       .eq('location_id', shipment.location_id)
-      .maybeSingle()
+
+    if (lotNumber) {
+      balanceQuery = balanceQuery.eq('lot_number', lotNumber)
+    } else {
+      balanceQuery = balanceQuery.or('lot_number.is.null,lot_number.eq.')
+    }
+
+    if (expiryDate) {
+      balanceQuery = balanceQuery.eq('expiry_date', expiryDate)
+    } else {
+      balanceQuery = balanceQuery.or('expiry_date.is.null,expiry_date.eq.')
+    }
+
+    const { data: balance, error: balanceError } = await balanceQuery.maybeSingle()
+
+    if (balanceError) {
+      return { error: `Error finding stock: ${balanceError.message}` }
+    }
 
     if (!balance || balance.qty_on_hand < line.qty) {
       return { error: `Insufficient stock for ${line.product?.sku || 'product'}` }
@@ -174,15 +331,18 @@ export async function shipShipment(id: string) {
     const unitCost = balance.avg_cost || 0
     shippedItems.push({ product_id: line.product_id, qty: line.qty })
 
-    // Deduct from inventory
-    await supabase
+    // Deduct from inventory (using balance id for precision)
+    const { error: updateError } = await supabase
       .from('inventory_balances')
       .update({
         qty_on_hand: balance.qty_on_hand - line.qty,
         updated_at: new Date().toISOString(),
       })
-      .eq('product_id', line.product_id)
-      .eq('location_id', shipment.location_id)
+      .eq('id', balance.id)
+
+    if (updateError) {
+      return { error: `Error updating stock: ${updateError.message}` }
+    }
 
     // Update line with cost
     await supabase
@@ -199,8 +359,8 @@ export async function shipShipment(id: string) {
       movement_type: 'ship',
       reference_type: 'shipment',
       reference_id: id,
-      lot_number: line.lot_number || null,
-      expiry_date: line.expiry_date || null,
+      lot_number: lotNumber,
+      expiry_date: expiryDate,
       unit_cost: unitCost,
       created_by: user.id,
     })
@@ -210,7 +370,7 @@ export async function shipShipment(id: string) {
     .from('shipments')
     .update({
       status: 'completed',
-      ship_date: shipment.ship_date || new Date().toISOString().split('T')[0],
+      ship_date: shipDate || shipment.ship_date || new Date().toISOString().split('T')[0],
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
@@ -229,6 +389,9 @@ export async function shipShipment(id: string) {
   revalidatePath('/shipments')
   revalidatePath(`/shipments/${id}`)
   revalidatePath('/stock')
+  revalidatePath('/shipments/new')
+  revalidatePath('/transfers/new')
+  revalidatePath('/returns/new')
   return { success: true }
 }
 
@@ -280,6 +443,7 @@ export async function deleteShipment(id: string) {
     return { error: 'Can only delete draft shipments' }
   }
 
+  await deleteEntityDocuments('shipment', id)
   await supabase.from('shipments').delete().eq('id', id)
 
   // Audit log

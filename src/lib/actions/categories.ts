@@ -1,11 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { categorySchema, type CategoryFormData } from '@/lib/validations/category'
 import { createAuditLog } from '@/lib/audit'
 import { computeChanges } from '@/lib/audit-utils'
+import { deleteEntityDocuments } from '@/lib/actions/documents'
 
 export async function getCategories() {
   const supabase = await createClient()
@@ -58,6 +58,8 @@ export async function createCategory(formData: CategoryFormData) {
     tenant_id: userData.tenant_id,
     name: validated.data.name,
     parent_id: validated.data.parent_id || null,
+    is_parent: validated.data.is_parent || false,
+    active: validated.data.active ?? true,
   }).select().single()
 
   if (error) {
@@ -73,11 +75,11 @@ export async function createCategory(formData: CategoryFormData) {
     resourceType: 'category',
     resourceId: newCategory.id,
     resourceName: validated.data.name,
-    newValues: { name: validated.data.name, parent_id: validated.data.parent_id },
+    newValues: { name: validated.data.name, parent_id: validated.data.parent_id, is_parent: validated.data.is_parent },
   })
 
   revalidatePath('/categories')
-  redirect('/categories')
+  return { success: true, id: newCategory.id }
 }
 
 export async function updateCategory(id: string, formData: CategoryFormData) {
@@ -104,6 +106,8 @@ export async function updateCategory(id: string, formData: CategoryFormData) {
   const newValues = {
     name: validated.data.name,
     parent_id: validated.data.parent_id || null,
+    is_parent: validated.data.is_parent || false,
+    active: validated.data.active ?? true,
   }
 
   // Update
@@ -131,7 +135,7 @@ export async function updateCategory(id: string, formData: CategoryFormData) {
   })
 
   revalidatePath('/categories')
-  redirect('/categories')
+  return { success: true }
 }
 
 export async function deleteCategory(id: string) {
@@ -165,6 +169,8 @@ export async function deleteCategory(id: string) {
   if (children && children.length > 0) {
     return { error: 'Cannot delete category with subcategories. Delete subcategories first.' }
   }
+
+  await deleteEntityDocuments('category', id)
 
   const { error } = await supabase
     .from('categories')

@@ -1,11 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { locationSchema, type LocationFormData } from '@/lib/validations/location'
 import { createAuditLog } from '@/lib/audit'
 import { computeChanges } from '@/lib/audit-utils'
+import { deleteEntityDocuments } from '@/lib/actions/documents'
 
 export async function getLocations() {
   const supabase = await createClient()
@@ -61,7 +61,7 @@ export async function createLocation(formData: LocationFormData) {
   })
 
   revalidatePath('/locations')
-  redirect('/locations')
+  return { success: true, id: newLocation.id }
 }
 
 export async function updateLocation(id: string, formData: LocationFormData) {
@@ -108,7 +108,7 @@ export async function updateLocation(id: string, formData: LocationFormData) {
   })
 
   revalidatePath('/locations')
-  redirect('/locations')
+  return { success: true }
 }
 
 export async function deleteLocation(id: string) {
@@ -131,6 +131,8 @@ export async function deleteLocation(id: string) {
   if (inventory && inventory.length > 0) {
     return { error: 'Cannot delete location with existing inventory' }
   }
+
+  await deleteEntityDocuments('location', id)
 
   const { error } = await supabase
     .from('locations')

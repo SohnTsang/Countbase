@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { adjustmentSchema, type AdjustmentFormData } from '@/lib/validations/adjustment'
 import { createAuditLog } from '@/lib/audit'
@@ -57,6 +56,7 @@ export async function createAdjustment(formData: AdjustmentFormData) {
     qty: line.qty,
     lot_number: line.lot_number || null,
     expiry_date: line.expiry_date || null,
+    unit_cost: line.unit_cost || null,
   }))
 
   const { error: linesError } = await supabase.from('adjustment_lines').insert(lines)
@@ -81,7 +81,66 @@ export async function createAdjustment(formData: AdjustmentFormData) {
   })
 
   revalidatePath('/adjustments')
-  redirect('/adjustments')
+  return { success: true, id: adjustment.id }
+}
+
+export async function updateAdjustment(id: string, formData: AdjustmentFormData) {
+  const supabase = await createClient()
+
+  const validated = adjustmentSchema.safeParse(formData)
+  if (!validated.success) {
+    return { error: validated.error.flatten().fieldErrors }
+  }
+
+  const { data: adjustment } = await supabase
+    .from('adjustments')
+    .select('status, adjustment_number')
+    .eq('id', id)
+    .single()
+
+  if (!adjustment) return { error: { _form: ['Adjustment not found'] } }
+  if (adjustment.status !== 'draft') return { error: { _form: ['Can only edit draft adjustments'] } }
+
+  const { error: updateError } = await supabase
+    .from('adjustments')
+    .update({
+      location_id: validated.data.location_id,
+      reason: validated.data.reason,
+      notes: validated.data.notes || null,
+    })
+    .eq('id', id)
+
+  if (updateError) return { error: { _form: [updateError.message] } }
+
+  await supabase.from('adjustment_lines').delete().eq('adjustment_id', id)
+
+  const lines = validated.data.lines.map((line) => ({
+    adjustment_id: id,
+    product_id: line.product_id,
+    qty: line.qty,
+    lot_number: line.lot_number || null,
+    expiry_date: line.expiry_date || null,
+    unit_cost: line.unit_cost || null,
+  }))
+
+  const { error: linesError } = await supabase.from('adjustment_lines').insert(lines)
+  if (linesError) return { error: { _form: [linesError.message] } }
+
+  await createAuditLog({
+    action: 'update',
+    resourceType: 'adjustment',
+    resourceId: id,
+    resourceName: adjustment.adjustment_number,
+    newValues: {
+      location_id: validated.data.location_id,
+      reason: validated.data.reason,
+      lines_count: lines.length,
+    },
+  })
+
+  revalidatePath('/adjustments')
+  revalidatePath(`/adjustments/${id}`)
+  return { success: true }
 }
 
 export async function postAdjustment(id: string) {
@@ -90,11 +149,16 @@ export async function postAdjustment(id: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated' }
 
-  const { data: userData } = await supabase
+  const { data: userData, error: userError } = await supabase
     .from('users')
     .select('tenant_id')
     .eq('id', user.id)
     .single()
+
+  if (userError || !userData?.tenant_id) {
+    console.error('Failed to get user tenant:', userError)
+    return { error: 'Failed to get user data' }
+  }
 
   const { data: adjustment } = await supabase
     .from('adjustments')
@@ -116,7 +180,8 @@ export async function postAdjustment(id: string) {
       .eq('location_id', adjustment.location_id)
       .maybeSingle()
 
-    const unitCost = balance?.avg_cost || 0
+    // Use user-provided unit_cost if available, otherwise fall back to balance avg_cost
+    const unitCost = line.unit_cost ?? balance?.avg_cost ?? 0
     adjustedItems.push({ product_id: line.product_id, qty: line.qty })
 
     if (line.qty > 0) {
@@ -133,7 +198,7 @@ export async function postAdjustment(id: string) {
           .eq('id', balance.id)
       } else {
         await supabase.from('inventory_balances').insert({
-          tenant_id: userData?.tenant_id,
+          tenant_id: userData.tenant_id,
           product_id: line.product_id,
           location_id: adjustment.location_id,
           lot_number: line.lot_number || null,
@@ -166,9 +231,9 @@ export async function postAdjustment(id: string) {
       .update({ unit_cost: unitCost })
       .eq('id', line.id)
 
-    // Record stock movement
-    await supabase.from('stock_movements').insert({
-      tenant_id: userData?.tenant_id,
+    // Record stock movement (extended_cost is a generated column, don't insert it)
+    const { error: movementError } = await supabase.from('stock_movements').insert({
+      tenant_id: userData.tenant_id,
       product_id: line.product_id,
       location_id: adjustment.location_id,
       qty: line.qty,
@@ -178,10 +243,14 @@ export async function postAdjustment(id: string) {
       lot_number: line.lot_number || null,
       expiry_date: line.expiry_date || null,
       unit_cost: unitCost,
-      extended_cost: Math.abs(line.qty * unitCost),
       reason: adjustment.reason,
       created_by: user.id,
     })
+
+    if (movementError) {
+      console.error('Failed to create stock movement:', movementError)
+      return { error: `Failed to record stock movement: ${movementError.message}` }
+    }
   }
 
   await supabase
@@ -203,6 +272,9 @@ export async function postAdjustment(id: string) {
   revalidatePath('/adjustments')
   revalidatePath(`/adjustments/${id}`)
   revalidatePath('/stock')
+  revalidatePath('/shipments/new')
+  revalidatePath('/transfers/new')
+  revalidatePath('/returns/new')
   return { success: true }
 }
 

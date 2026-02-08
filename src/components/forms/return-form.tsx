@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter } from 'next/navigation'
@@ -27,20 +27,34 @@ import {
 import { Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createReturnSchema, type ReturnFormData } from '@/lib/validations/return'
-import { createReturn } from '@/lib/actions/returns'
+import { createReturn, updateReturn } from '@/lib/actions/returns'
 import { useTranslation } from '@/lib/i18n'
-import type { Customer, Supplier, Location, Product } from '@/types'
+import { DocumentUpload, type DocumentUploadHandle } from '@/components/documents/document-upload'
+import type { Customer, Supplier, Location, Product, InventoryBalance } from '@/types'
 
 interface ReturnFormProps {
   customers: Customer[]
   suppliers: Supplier[]
   locations: Location[]
   products: Product[]
+  stockBalances: InventoryBalance[]
+  initialData?: {
+    id: string
+    return_type: 'customer' | 'supplier'
+    location_id: string
+    partner_id: string | null
+    partner_name: string | null
+    reason: string | null
+    notes: string | null
+    lines: { product_id: string; qty: number; lot_number: string | null; expiry_date: string | null }[]
+  }
 }
 
-export function ReturnForm({ customers, suppliers, locations, products }: ReturnFormProps) {
+export function ReturnForm({ customers, suppliers, locations, products, stockBalances, initialData }: ReturnFormProps) {
   const router = useRouter()
   const { t } = useTranslation()
+  const docUploadRef = useRef<DocumentUploadHandle>(null)
+  const isEdit = !!initialData
 
   const schema = useMemo(() => createReturnSchema(t), [t])
 
@@ -54,15 +68,30 @@ export function ReturnForm({ customers, suppliers, locations, products }: Return
   } = useForm<ReturnFormData>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(schema) as any,
-    defaultValues: {
-      return_type: 'customer',
-      location_id: '',
-      partner_id: '',
-      partner_name: '',
-      reason: '',
-      notes: '',
-      lines: [{ product_id: '', qty: 1, lot_number: '', expiry_date: '' }],
-    },
+    defaultValues: initialData
+      ? {
+          return_type: initialData.return_type,
+          location_id: initialData.location_id,
+          partner_id: initialData.partner_id || '',
+          partner_name: initialData.partner_name || '',
+          reason: initialData.reason || '',
+          notes: initialData.notes || '',
+          lines: initialData.lines.map((l) => ({
+            product_id: l.product_id,
+            qty: l.qty,
+            lot_number: l.lot_number || '',
+            expiry_date: l.expiry_date || '',
+          })),
+        }
+      : {
+          return_type: 'customer',
+          location_id: '',
+          partner_id: '',
+          partner_name: '',
+          reason: '',
+          notes: '',
+          lines: [{ product_id: '', qty: 1, lot_number: '', expiry_date: '' }],
+        },
   })
 
   const { fields, append, remove } = useFieldArray({
@@ -72,8 +101,51 @@ export function ReturnForm({ customers, suppliers, locations, products }: Return
 
   const watchedReturnType = watch('return_type')
   const watchedPartnerId = watch('partner_id')
+  const watchedLocationId = watch('location_id')
 
   const partners = watchedReturnType === 'customer' ? customers : suppliers
+  const isSupplierReturn = watchedReturnType === 'supplier'
+
+  // For supplier returns: only show products with stock at selected location
+  const availableProducts = useMemo(() => {
+    if (!isSupplierReturn || !watchedLocationId) return products
+    const productIdsWithStock = new Set(
+      stockBalances
+        .filter((b) => b.location_id === watchedLocationId && b.qty_on_hand > 0)
+        .map((b) => b.product_id)
+    )
+    return products.filter((p) => p.active && productIdsWithStock.has(p.id))
+  }, [isSupplierReturn, watchedLocationId, stockBalances, products])
+
+  // Get total available stock for a product at selected location
+  const getTotalStock = (productId: string) => {
+    return stockBalances
+      .filter((b) => b.product_id === productId && b.location_id === watchedLocationId)
+      .reduce((sum, b) => sum + b.qty_on_hand, 0)
+  }
+
+  // Get all available lots/batches for a product at selected location
+  const getAvailableLots = (productId: string) => {
+    return stockBalances.filter(
+      (b) => b.product_id === productId && b.location_id === watchedLocationId && b.qty_on_hand > 0
+    )
+  }
+
+  // Format lot display text
+  const formatLotDisplay = (balance: InventoryBalance) => {
+    const parts: string[] = []
+    if (balance.lot_number) {
+      parts.push(balance.lot_number)
+    } else {
+      parts.push(t('stock.noLot'))
+    }
+    if (balance.expiry_date) {
+      parts.push(`${t('stock.expiry')}: ${balance.expiry_date}`)
+    }
+    const uom = products.find(p => p.id === balance.product_id)?.base_uom
+    parts.push(`(${balance.qty_on_hand} ${uom ? t(`uom.${uom}`) : ''})`)
+    return parts.join(' - ')
+  }
 
   const onSubmit = async (data: ReturnFormData) => {
     // Set partner name from selected partner
@@ -83,17 +155,26 @@ export function ReturnForm({ customers, suppliers, locations, products }: Return
     }
 
     try {
-      const result = await createReturn(data)
+      const result = isEdit
+        ? await updateReturn(initialData!.id, data)
+        : await createReturn(data)
 
-      if (result?.error) {
-        if (typeof result.error === 'object' && '_form' in result.error) {
-          toast.error((result.error as { _form: string[] })._form?.[0])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err = (result as any)?.error
+      if (err) {
+        if (typeof err === 'object' && '_form' in err) {
+          toast.error((err as { _form: string[] })._form?.[0])
         } else {
           toast.error(t('common.validationError'))
         }
         return
       }
-      toast.success(t('toast.returnCreated'))
+      toast.success(isEdit ? t('toast.returnUpdated') : t('toast.returnCreated'))
+      if (!isEdit && (result as any)?.id) {
+        await docUploadRef.current?.uploadQueuedFiles((result as any).id)
+      }
+      router.replace(isEdit ? `/returns/${initialData!.id}` : '/returns')
+      router.refresh()
     } catch (error) {
       toast.error(t('common.errorOccurred'))
     }
@@ -103,7 +184,7 @@ export function ReturnForm({ customers, suppliers, locations, products }: Return
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>{t('returns.newReturn')}</CardTitle>
+          <CardTitle>{isEdit ? t('returns.editReturn') : t('returns.newReturn')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -115,6 +196,13 @@ export function ReturnForm({ customers, suppliers, locations, products }: Return
                   setValue('return_type', value)
                   setValue('partner_id', '')
                   setValue('partner_name', '')
+                  // Clear product and lot selections when type changes
+                  const currentLines = watch('lines')
+                  currentLines.forEach((_, index) => {
+                    setValue(`lines.${index}.product_id`, '')
+                    setValue(`lines.${index}.lot_number`, '')
+                    setValue(`lines.${index}.expiry_date`, '')
+                  })
                 }}
               >
                 <SelectTrigger>
@@ -134,7 +222,18 @@ export function ReturnForm({ customers, suppliers, locations, products }: Return
               <Label>{t('stock.location')} *</Label>
               <Select
                 value={watch('location_id')}
-                onValueChange={(value) => setValue('location_id', value)}
+                onValueChange={(value) => {
+                  setValue('location_id', value)
+                  // Clear product and lot selections when location changes (for supplier returns)
+                  if (isSupplierReturn) {
+                    const currentLines = watch('lines')
+                    currentLines.forEach((_, index) => {
+                      setValue(`lines.${index}.product_id`, '')
+                      setValue(`lines.${index}.lot_number`, '')
+                      setValue(`lines.${index}.expiry_date`, '')
+                    })
+                  }
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder={t('cycleCounts.selectLocation')} />
@@ -227,29 +326,58 @@ export function ReturnForm({ customers, suppliers, locations, products }: Return
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[300px]">{t('products.product')}</TableHead>
+                  <TableHead className="w-[250px]">{t('products.product')}</TableHead>
+                  {isSupplierReturn ? (
+                    <>
+                      <TableHead className="w-[280px]">{t('stock.lotBatch')}</TableHead>
+                      <TableHead className="w-[140px]">{t('stock.available')}</TableHead>
+                    </>
+                  ) : (
+                    <>
+                      <TableHead className="w-[120px]">{t('purchaseOrders.lot')}</TableHead>
+                      <TableHead className="w-[140px]">{t('purchaseOrders.expiry')}</TableHead>
+                    </>
+                  )}
                   <TableHead className="w-[100px]">{t('returns.qty')}</TableHead>
-                  <TableHead className="w-[120px]">{t('purchaseOrders.lot')}</TableHead>
-                  <TableHead className="w-[140px]">{t('purchaseOrders.expiry')}</TableHead>
                   <TableHead className="w-[60px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {fields.map((field, index) => {
-                  const product = products.find((p) => p.id === watch(`lines.${index}.product_id`))
+                  const productId = watch(`lines.${index}.product_id`)
+                  const lotNumber = watch(`lines.${index}.lot_number`)
+                  const expiryDate = watch(`lines.${index}.expiry_date`)
+                  const product = products.find((p) => p.id === productId)
+                  const availableLots = productId ? getAvailableLots(productId) : []
+                  const totalStock = productId ? getTotalStock(productId) : 0
+
+                  // Find the selected balance for supplier returns
+                  const selectedBalance = stockBalances.find(
+                    (b) =>
+                      b.product_id === productId &&
+                      b.location_id === watchedLocationId &&
+                      (b.lot_number || '') === (lotNumber || '') &&
+                      (b.expiry_date || '') === (expiryDate || '')
+                  )
+                  const lotStock = selectedBalance?.qty_on_hand || 0
 
                   return (
                     <TableRow key={field.id}>
                       <TableCell>
                         <Select
                           value={watch(`lines.${index}.product_id`)}
-                          onValueChange={(value) => setValue(`lines.${index}.product_id`, value)}
+                          onValueChange={(value) => {
+                            setValue(`lines.${index}.product_id`, value)
+                            // Clear lot selection when product changes
+                            setValue(`lines.${index}.lot_number`, '')
+                            setValue(`lines.${index}.expiry_date`, '')
+                          }}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder={t('cycleCounts.selectProduct')} />
                           </SelectTrigger>
                           <SelectContent>
-                            {products.map((p) => (
+                            {availableProducts.map((p) => (
                               <SelectItem key={p.id} value={p.id}>
                                 {p.sku} - {p.name}
                               </SelectItem>
@@ -262,6 +390,85 @@ export function ReturnForm({ customers, suppliers, locations, products }: Return
                           </p>
                         )}
                       </TableCell>
+
+                      {isSupplierReturn ? (
+                        <>
+                          <TableCell>
+                            {productId && availableLots.length > 0 ? (
+                              <Select
+                                value={selectedBalance?.id || 'none'}
+                                onValueChange={(balanceId) => {
+                                  if (balanceId === 'none') {
+                                    setValue(`lines.${index}.lot_number`, '')
+                                    setValue(`lines.${index}.expiry_date`, '')
+                                  } else {
+                                    const balance = stockBalances.find((b) => b.id === balanceId)
+                                    if (balance) {
+                                      setValue(`lines.${index}.lot_number`, balance.lot_number || '')
+                                      setValue(`lines.${index}.expiry_date`, balance.expiry_date || '')
+                                    }
+                                  }
+                                }}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder={t('shipments.selectLot')} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">-- {t('shipments.selectLot')} --</SelectItem>
+                                  {availableLots.map((balance) => (
+                                    <SelectItem key={balance.id} value={balance.id}>
+                                      {formatLotDisplay(balance)}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : productId ? (
+                              <span className="text-gray-400 text-sm">{t('stock.noStockAvailable')}</span>
+                            ) : (
+                              <span className="text-gray-400 text-sm">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              <div className={totalStock > 0 ? 'text-blue-600' : 'text-red-600'}>
+                                {t('common.total')}: {totalStock} {t(`uom.${product?.base_uom}`)}
+                              </div>
+                              {selectedBalance && (
+                                <div className={lotStock > 0 ? 'text-green-600' : 'text-red-600'}>
+                                  {t('stock.lot')}: {lotStock} {t(`uom.${product?.base_uom}`)}
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                        </>
+                      ) : (
+                        <>
+                          <TableCell>
+                            {product?.track_lot ? (
+                              <Input
+                                type="text"
+                                placeholder={t('purchaseOrders.lot')}
+                                {...register(`lines.${index}.lot_number`)}
+                                className="w-28"
+                              />
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {product?.track_expiry ? (
+                              <Input
+                                type="date"
+                                {...register(`lines.${index}.expiry_date`)}
+                                className="w-36"
+                              />
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </TableCell>
+                        </>
+                      )}
+
                       <TableCell>
                         <Input
                           type="number"
@@ -270,29 +477,6 @@ export function ReturnForm({ customers, suppliers, locations, products }: Return
                           {...register(`lines.${index}.qty`)}
                           className="w-20"
                         />
-                      </TableCell>
-                      <TableCell>
-                        {product?.track_lot ? (
-                          <Input
-                            type="text"
-                            placeholder={t('purchaseOrders.lot')}
-                            {...register(`lines.${index}.lot_number`)}
-                            className="w-28"
-                          />
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {product?.track_expiry ? (
-                          <Input
-                            type="date"
-                            {...register(`lines.${index}.expiry_date`)}
-                            className="w-36"
-                          />
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
                       </TableCell>
                       <TableCell>
                         {fields.length > 1 && (
@@ -316,11 +500,13 @@ export function ReturnForm({ customers, suppliers, locations, products }: Return
         </CardContent>
       </Card>
 
+      {!isEdit && <DocumentUpload ref={docUploadRef} entityType="return" entityId={null} />}
+
       <div className="flex gap-4">
         <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? t('returns.creating') : t('returns.createReturn')}
+          {isSubmitting ? t('returns.creating') : (isEdit ? t('returns.updateReturn') : t('returns.createReturn'))}
         </Button>
-        <Button type="button" variant="outline" onClick={() => router.push('/returns')}>
+        <Button type="button" variant="outline" onClick={() => router.push(isEdit ? `/returns/${initialData!.id}` : '/returns')}>
           {t('common.cancel')}
         </Button>
       </div>
