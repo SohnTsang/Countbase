@@ -1,6 +1,6 @@
 'use server'
 
-import { resend } from './resend'
+import { getResend } from './resend'
 import { emailConfig } from './config'
 import { generateInvitationEmail } from './templates/invitation'
 import { logError } from '@/lib/error-logger'
@@ -33,7 +33,7 @@ export async function sendInvitationEmail(params: SendInvitationEmailParams): Pr
       locale: params.locale,
     })
 
-    const { error } = await resend.emails.send({
+    const { error } = await getResend().emails.send({
       from: `${emailConfig.appName} <${emailConfig.fromEmail}>`,
       to: params.to,
       subject,

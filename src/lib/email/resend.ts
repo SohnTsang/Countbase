@@ -1,10 +1,14 @@
 import { Resend } from 'resend'
 
-// Initialize Resend client
-const resendApiKey = process.env.RESEND_API_KEY
+let resendClient: Resend | null = null
 
-if (!resendApiKey) {
-  console.warn('RESEND_API_KEY is not set. Email sending will fail.')
+export function getResend(): Resend {
+  if (!resendClient) {
+    const apiKey = process.env.RESEND_API_KEY
+    if (!apiKey) {
+      throw new Error('RESEND_API_KEY is not set. Please add it to your .env.local file.')
+    }
+    resendClient = new Resend(apiKey)
+  }
+  return resendClient
 }
-
-export const resend = new Resend(resendApiKey)
