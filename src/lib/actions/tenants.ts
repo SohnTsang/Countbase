@@ -223,8 +223,10 @@ export async function createTenant(formData: {
   })
 
   if (!emailResult.success) {
-    // Don't delete tenant, just warn
-    console.error('Failed to send invitation email:', emailResult.error)
+    // Don't delete tenant, just warn - admin can copy invite link manually
+    console.warn('Failed to send invitation email:', emailResult.error)
+    revalidatePath('/admin/tenants')
+    return { success: true, tenantId: tenant.id, emailFailed: true, token: invitation.token }
   }
 
   revalidatePath('/admin/tenants')
@@ -393,8 +395,10 @@ export async function inviteUserToTenant(tenantId: string, formData: {
   })
 
   if (!emailResult.success) {
-    await adminClient.from('user_invitations').delete().eq('id', invitation.id)
-    return { error: { _form: ['Failed to send invitation email'] } }
+    // Keep the invitation - admin can copy the invite link manually
+    console.warn('Failed to send invitation email:', emailResult.error)
+    revalidatePath(`/admin/tenants/${tenantId}`)
+    return { success: true, emailFailed: true, token: invitation.token }
   }
 
   revalidatePath(`/admin/tenants/${tenantId}`)

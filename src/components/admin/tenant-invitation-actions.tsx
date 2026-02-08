@@ -10,20 +10,28 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
-import { MoreHorizontal, RefreshCw, Trash2 } from 'lucide-react'
+import { MoreHorizontal, RefreshCw, Trash2, Link } from 'lucide-react'
 import { resendTenantInvitation, cancelTenantInvitation } from '@/lib/actions/tenants'
 
 interface TenantInvitationActionsProps {
   invitationId: string
   tenantId: string
+  token: string
 }
 
 export function TenantInvitationActions({
   invitationId,
   tenantId,
+  token,
 }: TenantInvitationActionsProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+
+  const handleCopyLink = async () => {
+    const link = `${window.location.origin}/invite/accept?token=${token}`
+    await navigator.clipboard.writeText(link)
+    toast.success('Invite link copied to clipboard')
+  }
 
   const handleResend = async () => {
     setIsLoading(true)
@@ -65,6 +73,10 @@ export function TenantInvitationActions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={handleCopyLink}>
+          <Link className="mr-2 h-4 w-4" />
+          Copy Invite Link
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={handleResend}>
           <RefreshCw className="mr-2 h-4 w-4" />
           Resend Invitation

@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { inviteUserToTenant } from '@/lib/actions/tenants'
-import { Send } from 'lucide-react'
+import { Send, Copy, CheckCircle } from 'lucide-react'
 
 interface TenantInviteFormProps {
   tenantId: string
@@ -34,6 +34,8 @@ const roles = [
 
 export function TenantInviteForm({ tenantId }: TenantInviteFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [inviteLink, setInviteLink] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const {
     register,
@@ -50,11 +52,24 @@ export function TenantInviteForm({ tenantId }: TenantInviteFormProps) {
     },
   })
 
+  const copyToClipboard = async (link: string) => {
+    await navigator.clipboard.writeText(link)
+    setCopied(true)
+    toast.success('Invite link copied to clipboard')
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   const onSubmit = async (data: FormData) => {
     setIsSubmitting(true)
+    setInviteLink(null)
 
     try {
-      const result = await inviteUserToTenant(tenantId, data)
+      const result = await inviteUserToTenant(tenantId, data) as {
+        error?: Record<string, string | string[]>
+        success?: boolean
+        emailFailed?: boolean
+        token?: string
+      }
 
       if (result.error) {
         if (typeof result.error === 'object') {
@@ -71,7 +86,13 @@ export function TenantInviteForm({ tenantId }: TenantInviteFormProps) {
         return
       }
 
-      toast.success('Invitation sent successfully')
+      if (result.emailFailed && result.token) {
+        const link = `${window.location.origin}/invite/accept?token=${result.token}`
+        setInviteLink(link)
+        toast.warning('Email failed to send, but invitation was created. Copy the invite link below.')
+      } else {
+        toast.success('Invitation sent successfully')
+      }
       reset()
     } finally {
       setIsSubmitting(false)
@@ -79,53 +100,82 @@ export function TenantInviteForm({ tenantId }: TenantInviteFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col sm:flex-row gap-4">
-      <div className="flex-1 space-y-1">
-        <Label htmlFor="email" className="sr-only">
-          Email
-        </Label>
-        <Input
-          id="email"
-          type="email"
-          {...register('email', {
-            required: 'Email is required',
-            pattern: {
-              value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-              message: 'Invalid email address',
-            },
-          })}
-          placeholder="user@company.com"
-        />
-        {errors.email && (
-          <p className="text-sm text-red-600">{errors.email.message}</p>
-        )}
-      </div>
+    <div className="space-y-4">
+      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col sm:flex-row gap-4">
+        <div className="flex-1 space-y-1">
+          <Label htmlFor="email" className="sr-only">
+            Email
+          </Label>
+          <Input
+            id="email"
+            type="email"
+            {...register('email', {
+              required: 'Email is required',
+              pattern: {
+                value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                message: 'Invalid email address',
+              },
+            })}
+            placeholder="user@company.com"
+          />
+          {errors.email && (
+            <p className="text-sm text-red-600">{errors.email.message}</p>
+          )}
+        </div>
 
-      <div className="w-full sm:w-40">
-        <Label htmlFor="role" className="sr-only">
-          Role
-        </Label>
-        <Select
-          value={watch('role')}
-          onValueChange={(value) => setValue('role', value)}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {roles.map((role) => (
-              <SelectItem key={role.value} value={role.value}>
-                {role.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+        <div className="w-full sm:w-40">
+          <Label htmlFor="role" className="sr-only">
+            Role
+          </Label>
+          <Select
+            value={watch('role')}
+            onValueChange={(value) => setValue('role', value)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {roles.map((role) => (
+                <SelectItem key={role.value} value={role.value}>
+                  {role.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-      <Button type="submit" disabled={isSubmitting}>
-        <Send className="mr-2 h-4 w-4" />
-        {isSubmitting ? 'Sending...' : 'Send Invite'}
-      </Button>
-    </form>
+        <Button type="submit" disabled={isSubmitting}>
+          <Send className="mr-2 h-4 w-4" />
+          {isSubmitting ? 'Sending...' : 'Send Invite'}
+        </Button>
+      </form>
+
+      {inviteLink && (
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+          <p className="text-sm font-medium text-yellow-800 mb-2">
+            Email could not be sent. Share this invite link manually:
+          </p>
+          <div className="flex items-center gap-2">
+            <Input
+              readOnly
+              value={inviteLink}
+              className="flex-1 bg-white text-sm font-mono"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => copyToClipboard(inviteLink)}
+            >
+              {copied ? (
+                <CheckCircle className="h-4 w-4 text-green-600" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Copy, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -28,6 +28,15 @@ export function TenantForm({ tenant, userCount = 0 }: TenantFormProps) {
   const router = useRouter()
   const isEdit = !!tenant
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [inviteLink, setInviteLink] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const copyToClipboard = async (link: string) => {
+    await navigator.clipboard.writeText(link)
+    setCopied(true)
+    toast.success('Invite link copied to clipboard')
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   const {
     register,
@@ -79,7 +88,13 @@ export function TenantForm({ tenant, userCount = 0 }: TenantFormProps) {
           name: data.name,
           max_users: data.max_users,
           admin_email: data.admin_email,
-        })
+        }) as {
+          error?: Record<string, string | string[]>
+          success?: boolean
+          tenantId?: string
+          emailFailed?: boolean
+          token?: string
+        }
 
         if (result.error) {
           if (typeof result.error === 'object') {
@@ -96,8 +111,14 @@ export function TenantForm({ tenant, userCount = 0 }: TenantFormProps) {
           return
         }
 
-        toast.success('Organization created and invitation sent')
-        router.push('/admin/tenants')
+        if (result.emailFailed && result.token) {
+          const link = `${window.location.origin}/invite/accept?token=${result.token}`
+          setInviteLink(link)
+          toast.warning('Organization created! Email failed - copy the invite link below.')
+        } else {
+          toast.success('Organization created and invitation sent')
+          router.push('/admin/tenants')
+        }
       }
     } finally {
       setIsSubmitting(false)
@@ -224,6 +245,43 @@ export function TenantForm({ tenant, userCount = 0 }: TenantFormProps) {
           </Link>
         </div>
       </form>
+
+      {inviteLink && (
+        <Card className="border-yellow-200 bg-yellow-50">
+          <CardHeader>
+            <CardTitle className="text-lg text-yellow-800">
+              Invite Link (Email Failed)
+            </CardTitle>
+            <CardDescription className="text-yellow-700">
+              The invitation email could not be sent. Share this link manually with the admin:
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Input
+                readOnly
+                value={inviteLink}
+                className="flex-1 bg-white text-sm font-mono"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => copyToClipboard(inviteLink)}
+              >
+                {copied ? (
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+            <p className="mt-2 text-sm text-yellow-700">
+              The invited user can open this link to create their account.
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

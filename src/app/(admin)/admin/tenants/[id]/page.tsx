@@ -208,6 +208,7 @@ export default async function TenantDetailPage({ params }: PageProps) {
                       <TenantInvitationActions
                         invitationId={invitation.id}
                         tenantId={tenant.id}
+                        token={invitation.token}
                       />
                     </TableCell>
                   </TableRow>
