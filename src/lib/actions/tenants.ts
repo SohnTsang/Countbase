@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { sendInvitationEmail } from '@/lib/email/send'
 import { emailConfig } from '@/lib/email/config'
 import type { Tenant, User, UserInvitation } from '@/types'
@@ -34,7 +34,7 @@ async function requirePlatformAdmin() {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated', user: null, supabase: null }
+  if (!user) return { error: 'Not authenticated', user: null, adminClient: null }
 
   const { data: userData } = await supabase
     .from('users')
@@ -43,10 +43,11 @@ async function requirePlatformAdmin() {
     .single()
 
   if (!userData?.is_platform_admin) {
-    return { error: 'Access denied. Platform admin required.', user: null, supabase: null }
+    return { error: 'Access denied. Platform admin required.', user: null, adminClient: null }
   }
 
-  return { error: null, user: userData, supabase }
+  const adminClient = createServiceClient()
+  return { error: null, user: userData, adminClient }
 }
 
 /**
@@ -56,11 +57,11 @@ export async function getAllTenants(): Promise<{
   data: (Tenant & { user_count: number; pending_invitations: number })[]
   error?: string
 }> {
-  const { error, supabase } = await requirePlatformAdmin()
-  if (error || !supabase) return { data: [], error: error || 'Unauthorized' }
+  const { error, adminClient } = await requirePlatformAdmin()
+  if (error || !adminClient) return { data: [], error: error || 'Unauthorized' }
 
   // Get all tenants
-  const { data: tenants, error: tenantError } = await supabase
+  const { data: tenants, error: tenantError } = await adminClient
     .from('tenants')
     .select('*')
     .order('name')
@@ -74,12 +75,12 @@ export async function getAllTenants(): Promise<{
   const tenantsWithCounts = await Promise.all(
     (tenants || []).map(async (tenant) => {
       const [usersRes, invitationsRes] = await Promise.all([
-        supabase
+        adminClient
           .from('users')
           .select('id', { count: 'exact', head: true })
           .eq('tenant_id', tenant.id)
           .eq('active', true),
-        supabase
+        adminClient
           .from('user_invitations')
           .select('id', { count: 'exact', head: true })
           .eq('tenant_id', tenant.id)
@@ -107,15 +108,15 @@ export async function getTenantDetails(tenantId: string): Promise<{
   invitations: UserInvitation[]
   error?: string
 }> {
-  const { error, supabase } = await requirePlatformAdmin()
-  if (error || !supabase) {
+  const { error, adminClient } = await requirePlatformAdmin()
+  if (error || !adminClient) {
     return { tenant: null, users: [], invitations: [], error: error || 'Unauthorized' }
   }
 
   const [tenantRes, usersRes, invitationsRes] = await Promise.all([
-    supabase.from('tenants').select('*').eq('id', tenantId).single(),
-    supabase.from('users').select('*').eq('tenant_id', tenantId).order('name'),
-    supabase
+    adminClient.from('tenants').select('*').eq('id', tenantId).single(),
+    adminClient.from('users').select('*').eq('tenant_id', tenantId).order('name'),
+    adminClient
       .from('user_invitations')
       .select('*')
       .eq('tenant_id', tenantId)
@@ -142,8 +143,8 @@ export async function createTenant(formData: {
   max_users: number
   admin_email: string
 }) {
-  const { error, user, supabase } = await requirePlatformAdmin()
-  if (error || !supabase || !user) {
+  const { error, user, adminClient } = await requirePlatformAdmin()
+  if (error || !adminClient || !user) {
     return { error: { _form: [error || 'Unauthorized'] } }
   }
 
@@ -154,7 +155,7 @@ export async function createTenant(formData: {
   }
 
   // Check if email is already registered
-  const { data: existingUser } = await supabase
+  const { data: existingUser } = await adminClient
     .from('users')
     .select('id')
     .eq('email', validated.data.admin_email)
@@ -165,7 +166,7 @@ export async function createTenant(formData: {
   }
 
   // Create tenant
-  const { data: tenant, error: tenantError } = await supabase
+  const { data: tenant, error: tenantError } = await adminClient
     .from('tenants')
     .insert({
       name: validated.data.name,
@@ -188,7 +189,7 @@ export async function createTenant(formData: {
   const expiresAt = new Date()
   expiresAt.setHours(expiresAt.getHours() + emailConfig.invitationExpiryHours)
 
-  const { data: invitation, error: invitationError } = await supabase
+  const { data: invitation, error: invitationError } = await adminClient
     .from('user_invitations')
     .insert({
       tenant_id: tenant.id,
@@ -203,7 +204,7 @@ export async function createTenant(formData: {
 
   if (invitationError) {
     // Clean up tenant
-    await supabase.from('tenants').delete().eq('id', tenant.id)
+    await adminClient.from('tenants').delete().eq('id', tenant.id)
     console.error('Error creating invitation:', invitationError)
     return { error: { _form: ['Failed to create admin invitation'] } }
   }
@@ -237,8 +238,8 @@ export async function updateTenant(tenantId: string, formData: {
   name: string
   max_users: number
 }) {
-  const { error, supabase } = await requirePlatformAdmin()
-  if (error || !supabase) {
+  const { error, adminClient } = await requirePlatformAdmin()
+  if (error || !adminClient) {
     return { error: { _form: [error || 'Unauthorized'] } }
   }
 
@@ -249,7 +250,7 @@ export async function updateTenant(tenantId: string, formData: {
   }
 
   // Get current user count to validate max_users
-  const { count: userCount } = await supabase
+  const { count: userCount } = await adminClient
     .from('users')
     .select('id', { count: 'exact', head: true })
     .eq('tenant_id', tenantId)
@@ -260,7 +261,7 @@ export async function updateTenant(tenantId: string, formData: {
   }
 
   // Update tenant
-  const { error: updateError } = await supabase
+  const { error: updateError } = await adminClient
     .from('tenants')
     .update({
       name: validated.data.name,
@@ -285,13 +286,13 @@ export async function inviteUserToTenant(tenantId: string, formData: {
   email: string
   role: string
 }) {
-  const { error, user, supabase } = await requirePlatformAdmin()
-  if (error || !supabase || !user) {
+  const { error, user, adminClient } = await requirePlatformAdmin()
+  if (error || !adminClient || !user) {
     return { error: { _form: [error || 'Unauthorized'] } }
   }
 
   // Get tenant
-  const { data: tenant } = await supabase
+  const { data: tenant } = await adminClient
     .from('tenants')
     .select('name, max_users')
     .eq('id', tenantId)
@@ -303,12 +304,12 @@ export async function inviteUserToTenant(tenantId: string, formData: {
 
   // Check user limit
   const [usersRes, invitationsRes] = await Promise.all([
-    supabase
+    adminClient
       .from('users')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
       .eq('active', true),
-    supabase
+    adminClient
       .from('user_invitations')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
@@ -322,7 +323,7 @@ export async function inviteUserToTenant(tenantId: string, formData: {
   }
 
   // Check if email is already a user or has pending invitation
-  const { data: existingUser } = await supabase
+  const { data: existingUser } = await adminClient
     .from('users')
     .select('id')
     .eq('tenant_id', tenantId)
@@ -334,7 +335,7 @@ export async function inviteUserToTenant(tenantId: string, formData: {
   }
 
   // Delete expired invitations
-  await supabase
+  await adminClient
     .from('user_invitations')
     .delete()
     .eq('tenant_id', tenantId)
@@ -343,7 +344,7 @@ export async function inviteUserToTenant(tenantId: string, formData: {
     .lt('expires_at', new Date().toISOString())
 
   // Check for existing pending invitation
-  const { data: existingInvitation } = await supabase
+  const { data: existingInvitation } = await adminClient
     .from('user_invitations')
     .select('id')
     .eq('tenant_id', tenantId)
@@ -360,7 +361,7 @@ export async function inviteUserToTenant(tenantId: string, formData: {
   const expiresAt = new Date()
   expiresAt.setHours(expiresAt.getHours() + emailConfig.invitationExpiryHours)
 
-  const { data: invitation, error: insertError } = await supabase
+  const { data: invitation, error: insertError } = await adminClient
     .from('user_invitations')
     .insert({
       tenant_id: tenantId,
@@ -392,7 +393,7 @@ export async function inviteUserToTenant(tenantId: string, formData: {
   })
 
   if (!emailResult.success) {
-    await supabase.from('user_invitations').delete().eq('id', invitation.id)
+    await adminClient.from('user_invitations').delete().eq('id', invitation.id)
     return { error: { _form: ['Failed to send invitation email'] } }
   }
 
